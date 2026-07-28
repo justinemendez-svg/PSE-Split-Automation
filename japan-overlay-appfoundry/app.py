@@ -7,7 +7,8 @@ by dragging the refresh script's CSV (Japan_Overlay_AE_Automation.csv) onto the
 
 Flow:
   1. The local refresh (refresh.py) pulls last month's Closed/Won Japan
-     Commercial+Enterprise opps (any type) from Salesforce and writes the CSV —
+     Commercial+Enterprise opps (any type, commissionable, Booking ARR > 0)
+     from Salesforce and writes the CSV —
      one row per opp, carrying the raw facts (mari_on_team, mari_on_split,
      other_overlay), NOT the verdict.
   2. Drag that CSV onto this app's /admin page → it lands in Postgres.
@@ -135,6 +136,9 @@ _COLUMN_ALIASES = {
     "type": "type", "opptype": "type", "opportunitytype": "type",
     "closedate": "close_date", "close_date": "close_date",
     "amount": "amount",
+    "bookingarrusd": "booking_arr_usd", "booking_arr_usd": "booking_arr_usd",
+    "totalbookingarrinusd": "booking_arr_usd", "bookingarr": "booking_arr_usd",
+    "noncommissionable": "non_commissionable", "non_commissionable": "non_commissionable",
     "stage": "stage", "stagename": "stage",
     "marionteam": "mari_on_team", "mari_on_team": "mari_on_team",
     "overlayonteam": "mari_on_team", "onteam": "mari_on_team",
@@ -288,6 +292,8 @@ def build_payload(df: pd.DataFrame) -> dict:
             "type": _str(r.get("type")),
             "closeDate": (str(r.get("close_date"))[:10] if pd.notna(r.get("close_date")) else None),
             "amount": amount,
+            "bookingArr": _num(r.get("booking_arr_usd")),
+            "nonCommissionable": _truthy(r.get("non_commissionable")),
             "stage": _str(r.get("stage")),
             "mariOnTeam": mari_on_team,
             "mariOnSplit": mari_on_split,
@@ -581,7 +587,7 @@ VIEWER_HTML = r"""<!DOCTYPE html>
 <header>
   <div>
     <h1>Japan Overlay AE Review</h1>
-    <div class="sub">Is <b id="hPerson">Mari Takiyama</b> tagged as AE Overlay in BOTH the Opportunity Team and the Overlay split? · Japan · Commercial + Enterprise · any type</div>
+    <div class="sub">Is <b id="hPerson">Mari Takiyama</b> tagged as AE Overlay in BOTH the Opportunity Team and the Overlay split? · Japan · Commercial + Enterprise · commissionable · Booking ARR &gt; 0</div>
   </div>
   <div class="spacer"></div>
   <span id="who" class="sub"></span>
@@ -632,7 +638,7 @@ VIEWER_HTML = r"""<!DOCTYPE html>
 </main>
 
 <footer>
-  Read-only monthly worklist · Dir Team = Japan · Commercial + Enterprise · Closed-Won, any type.
+  Read-only monthly worklist · Dir Team = Japan · Commercial + Enterprise · Closed-Won · commissionable · Total Booking ARR (USD) &gt; 0.
   &nbsp;·&nbsp; <a href="/admin">Upload data →</a>
 </footer>
 

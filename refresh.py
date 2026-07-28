@@ -69,6 +69,12 @@ OVERLAY_SPLIT_TYPE = "Overlay"            # OpportunitySplit SplitType.MasterLab
 SEGMENT_FIELD = "Account_Owner_Market_Segment__c"
 DIR_TEAM_FIELD = "Dir_Team__c"
 
+# Only commissionable bookings with real ARR are in scope — this excludes the
+# $0-ARR auto-renewals (which are all Non-Commissionable). Confirmed against
+# prod 2026-07-28: these two conditions together keep the opps with booking value.
+NON_COMMISSIONABLE_FIELD = "Non_Commissionable__c"       # boolean; scope = false
+BOOKING_ARR_FIELD = "Total_Booking_ARR_in_USD__c"        # double; scope = > 0
+
 
 def last_month_range(today=None):
     today = today or dt.date.today()
@@ -104,11 +110,14 @@ def build_soql(start, end):
     return (
         f"SELECT Id, Name, CloseDate, Amount, StageName, Type, "
         f"Account.Name, Owner.Name, {SEGMENT_FIELD}, {DIR_TEAM_FIELD}, "
+        f"{NON_COMMISSIONABLE_FIELD}, {BOOKING_ARR_FIELD}, "
         f"{team_child}, {split_child} "
         f"FROM Opportunity "
         f"WHERE StageName = '{CLOSED_WON_STAGE}' AND IsWon = true "
         f"AND {DIR_TEAM_FIELD} = '{DIR_TEAM}' "
         f"AND {SEGMENT_FIELD} IN ({_quote(IN_SCOPE_SEGMENTS)}) "
+        f"AND {NON_COMMISSIONABLE_FIELD} = false "
+        f"AND {BOOKING_ARR_FIELD} > 0 "
         f"AND CloseDate >= {start} AND CloseDate <= {end} "
         f"ORDER BY CloseDate DESC"
     )
@@ -179,6 +188,8 @@ def analyze(records):
             "type": opp.get("Type"),
             "closeDate": opp.get("CloseDate"),
             "amount": opp.get("Amount"),
+            "bookingArr": opp.get(BOOKING_ARR_FIELD),
+            "nonCommissionable": opp.get(NON_COMMISSIONABLE_FIELD),
             "stage": opp.get("StageName"),
             "mariOnTeam": mari_on_team,
             "mariOnSplit": mari_on_split,
@@ -215,8 +226,8 @@ def write_csv(rows, start, end, label, path=CSV_OUT):
     period_* columns let the app show the right month.
     """
     head = ["opp_id", "opp_name", "account", "owner", "segment", "dir_team",
-            "type", "close_date", "amount", "stage",
-            "mari_on_team", "mari_on_split", "other_overlay",
+            "type", "close_date", "amount", "booking_arr_usd", "non_commissionable",
+            "stage", "mari_on_team", "mari_on_split", "other_overlay",
             "period_label", "period_start", "period_end"]
     with open(path, "w", newline="") as f:
         w = csv.writer(f)
@@ -224,7 +235,8 @@ def write_csv(rows, start, end, label, path=CSV_OUT):
         for r in rows:
             w.writerow([
                 r["id"], r["name"], r["account"], r["owner"], r["segment"],
-                r["dirTeam"], r["type"], r["closeDate"], r["amount"], r["stage"],
+                r["dirTeam"], r["type"], r["closeDate"], r["amount"],
+                r["bookingArr"], r["nonCommissionable"], r["stage"],
                 r["mariOnTeam"], r["mariOnSplit"], "; ".join(r["otherOverlay"]),
                 label, start, end,
             ])

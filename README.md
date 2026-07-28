@@ -14,9 +14,14 @@ Admin, Contraction, Services Only, …) where:
 
 - **Dir Team** = `Japan` (`Opportunity.Dir_Team__c`)
 - **Segment** = `Commercial` or `Enterprise` (`Account_Owner_Market_Segment__c`)
+- **Non-Commissionable** = `False` (`Non_Commissionable__c` — i.e. commissionable)
+- **Total Booking ARR (in USD)** > 0 (`Total_Booking_ARR_in_USD__c`)
 
 Stage is `08 - Closed` **and** `IsWon = true` (that's how "Closed-Won" is stored
 in this org — there is no literal "Closed / Won" stage).
+
+> The commissionable + ARR>0 pair excludes the $0-ARR auto-renewals (which are
+> all Non-Commissionable), so the worklist covers only booking deals with value.
 
 ## The rule
 

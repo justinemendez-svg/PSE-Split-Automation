@@ -8,8 +8,9 @@ upload and no login needed.
 ## What it checks
 
 Every Closed-Won Japan opportunity (Dir Team = Japan, segment Commercial or
-Enterprise, **any** deal type) should have **Mari Takiyama** — the sole permitted
-AE Overlay — tagged in **both** places:
+Enterprise, **any** deal type, **commissionable**, **Total Booking ARR (USD) > 0**)
+should have **Mari Takiyama** — the sole permitted AE Overlay — tagged in **both**
+places:
 
 1. the **Opportunity Team**, with role **"AE Overlay"**, **and**
 2. an **Opportunity Split** of type **"Overlay"**.
@@ -53,6 +54,7 @@ opportunity**, carrying the raw facts only (the app re-derives the verdict):
 |---|---|
 | `opp_id`, `opp_name`, `account`, `owner`, `segment`, `dir_team` | the opportunity |
 | `type`, `close_date`, `amount`, `stage` | deal metadata |
+| `booking_arr_usd`, `non_commissionable` | scope facts (kept for reference; scope already filters on them) |
 | `mari_on_team` | `True`/`False` — Mari holds the AE Overlay team role |
 | `mari_on_split` | `True`/`False` — Mari owns an Overlay split |
 | `other_overlay` | `;`-separated non-Mari users holding the AE Overlay role (governance exceptions) |
