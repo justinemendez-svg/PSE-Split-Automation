@@ -68,6 +68,30 @@
   a:hover { text-decoration: underline; }
   footer { color: var(--muted); font-size: 12px; padding: 20px 24px; text-align: center; }
   .hidden { display: none !important; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
+  .tab { background: transparent; color: var(--muted); border: none; border-bottom: 2px solid transparent;
+    border-radius: 0; padding: 10px 16px; font-weight: 600; }
+  .tab:hover { background: var(--panel2); color: var(--txt); }
+  .tab.active { color: var(--accent2); border-bottom-color: var(--accent); }
+  .tab .badge { display: inline-block; background: rgba(245,158,11,.18); color: var(--warn);
+    border-radius: 999px; padding: 1px 8px; font-size: 11px; margin-left: 6px; }
+  .action-list { display: grid; gap: 14px; }
+  .action-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+    box-shadow: inset 3px 0 0 var(--warn); }
+  .action-head { padding: 14px 18px; border-bottom: 1px solid var(--line); }
+  .action-head .opp-title { font-size: 15px; font-weight: 650; }
+  .action-head .reason { color: var(--warn); font-weight: 600; margin-top: 4px; }
+  .action-body { padding: 14px 18px; display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; }
+  .action-body .step { flex: 1; min-width: 260px; }
+  .action-body .step b { color: var(--txt); }
+  .path { display: inline-block; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px;
+    padding: 1px 7px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  table.kv { width: auto; background: var(--panel2); border-radius: 8px; }
+  table.kv td { padding: 7px 14px; border-bottom: 1px solid var(--line); }
+  table.kv tr:last-child td { border-bottom: none; }
+  table.kv td.k2 { color: var(--muted); font-weight: 600; white-space: nowrap; }
+  table.kv td.v2 { font-weight: 650; }
+  .action-body .also { color: var(--muted); font-size: 12px; margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -91,6 +115,12 @@
       <div class="card"><div class="k">Period</div><div class="v" id="cPeriod" style="font-size:18px">–</div></div>
     </div>
 
+    <div class="tabs">
+      <button class="tab active" id="tabReview" data-tab="review">Review</button>
+      <button class="tab" id="tabAction" data-tab="action">Overlay AE to update <span class="badge" id="tabActionCount">0</span></button>
+    </div>
+
+    <div id="panelReview">
     <div class="toolbar">
       <input type="search" id="search" placeholder="Search opp, account, owner, ID…" />
       <select id="typeFilter" title="Filter by deal type"><option value="">All types</option></select>
@@ -120,6 +150,12 @@
       <tbody id="tbody"></tbody>
     </table>
     <div id="emptyRows" class="empty hidden">No opportunities match the current filter.</div>
+    </div>
+
+    <div id="panelAction" class="hidden">
+      <div class="action-list" id="actionList"></div>
+      <div id="actionEmpty" class="empty hidden">Nothing to update — every in-scope opp already has Mari tagged as AE Overlay in both places. ✅</div>
+    </div>
   </div>
 </main>
 

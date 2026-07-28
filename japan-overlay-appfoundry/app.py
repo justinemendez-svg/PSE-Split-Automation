@@ -581,6 +581,28 @@ VIEWER_HTML = r"""<!DOCTYPE html>
   a:hover { text-decoration: underline; }
   footer { color: var(--muted); font-size: 12px; padding: 20px 24px; text-align: center; }
   .hidden { display: none !important; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
+  .tab { background: transparent; color: var(--muted); border: none; border-bottom: 2px solid transparent;
+    border-radius: 0; padding: 10px 16px; font-weight: 600; }
+  .tab:hover { background: var(--panel2); color: var(--txt); }
+  .tab.active { color: var(--accent2); border-bottom-color: var(--accent); }
+  .tab .badge { display: inline-block; background: rgba(245,158,11,.18); color: var(--warn);
+    border-radius: 999px; padding: 1px 8px; font-size: 11px; margin-left: 6px; }
+  .action-list { display: grid; gap: 14px; }
+  .action-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+    box-shadow: inset 3px 0 0 var(--warn); }
+  .action-head { padding: 14px 18px; border-bottom: 1px solid var(--line); }
+  .action-head .opp-title { font-size: 15px; font-weight: 650; }
+  .action-head .reason { color: var(--warn); font-weight: 600; margin-top: 4px; }
+  .action-body { padding: 14px 18px; display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; }
+  .action-body .step { flex: 1; min-width: 260px; }
+  .action-body .step b { color: var(--txt); }
+  table.kv { width: auto; background: var(--panel2); border-radius: 8px; }
+  table.kv td { padding: 7px 14px; border-bottom: 1px solid var(--line); }
+  table.kv tr:last-child td { border-bottom: none; }
+  table.kv td.k2 { color: var(--muted); font-weight: 600; white-space: nowrap; }
+  table.kv td.v2 { font-weight: 650; }
+  .action-body .also { color: var(--muted); font-size: 12px; margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -604,6 +626,12 @@ VIEWER_HTML = r"""<!DOCTYPE html>
       <div class="card"><div class="k">Period</div><div class="v" id="cPeriod" style="font-size:18px">–</div></div>
     </div>
 
+    <div class="tabs">
+      <button class="tab active" id="tabReview" data-tab="review">Review</button>
+      <button class="tab" id="tabAction" data-tab="action">Overlay AE to update <span class="badge" id="tabActionCount">0</span></button>
+    </div>
+
+    <div id="panelReview">
     <div class="toolbar">
       <input type="search" id="search" placeholder="Search opp, account, owner, ID…" />
       <select id="typeFilter" title="Filter by deal type"><option value="">All types</option></select>
@@ -633,6 +661,12 @@ VIEWER_HTML = r"""<!DOCTYPE html>
       <tbody id="tbody"></tbody>
     </table>
     <div id="emptyRows" class="empty hidden">No opportunities match the current filter.</div>
+    </div>
+
+    <div id="panelAction" class="hidden">
+      <div class="action-list" id="actionList"></div>
+      <div id="actionEmpty" class="empty hidden">Nothing to update — every in-scope opp already has Mari tagged as AE Overlay in both places. ✅</div>
+    </div>
   </div>
 </main>
 
@@ -724,6 +758,49 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     URL.revokeObjectURL(a.href);
   }
 
+  function switchTab(name) {
+    document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
+    $("panelReview").classList.toggle("hidden", name !== "review");
+    $("panelAction").classList.toggle("hidden", name !== "action");
+    if (name === "action") renderAction();
+  }
+
+  function renderAction() {
+    const rows = STATE.rows.filter((r) => r.bucket === "missing");
+    const person = STATE.overlayPerson || "Mari Takiyama";
+    $("actionList").innerHTML = rows.map((r) => {
+      const link = STATE.sfBaseUrl && r.id
+        ? '<a class="opp-link" href="' + esc(STATE.sfBaseUrl) + "/lightning/r/Opportunity/" + esc(r.id) + '/view" target="_blank" rel="noopener">' + esc(r.name) + "</a>"
+        : '<span class="opp-link">' + esc(r.name) + "</span>";
+      const needTeam = !r.mariOnTeam, needSplit = !r.mariOnSplit;
+      const teamStep =
+        '<div class="step"><b>1 · Add Opportunity Team Member</b>' +
+        '<div class="meta">Opportunity → Opportunity Team → Add Members</div>' +
+        '<table class="kv"><tbody>' +
+        '<tr><td class="k2">User</td><td class="v2">' + esc(person) + "</td></tr>" +
+        '<tr><td class="k2">Team Role</td><td class="v2">AE Overlay</td></tr>' +
+        '<tr><td class="k2">Opportunity Access</td><td class="v2">Read Only</td></tr>' +
+        "</tbody></table>" +
+        (needTeam ? "" : '<div class="also">Already tagged on the team — no team change needed.</div>') + "</div>";
+      const splitStep =
+        '<div class="step"><b>2 · Add Overlay split</b>' +
+        '<div class="meta">Opportunity → Opportunity Splits → Edit Splits</div>' +
+        '<table class="kv"><tbody>' +
+        '<tr><td class="k2">Split Owner</td><td class="v2">' + esc(person) + "</td></tr>" +
+        '<tr><td class="k2">Split Type</td><td class="v2">Overlay</td></tr>' +
+        "</tbody></table>" +
+        (needSplit ? "" : '<div class="also">Overlay split already set — no split change needed.</div>') + "</div>";
+      return '<div class="action-card">' +
+        '<div class="action-head"><div class="opp-title">' + link + "</div>" +
+          '<div class="opp-id">' + esc(r.id || "") + "</div>" +
+          '<div class="meta">' + esc(r.account || "—") + " · " + esc(r.owner || "—") + " · " + esc(r.segment || "—") + " · " + esc(r.type || "—") + "</div>" +
+          '<div class="reason">' + esc(r.reason) + "</div></div>" +
+        '<div class="action-body">' + teamStep + splitStep + "</div></div>";
+    }).join("");
+    $("actionEmpty").classList.toggle("hidden", rows.length !== 0);
+    $("actionList").classList.toggle("hidden", rows.length === 0);
+  }
+
   async function load() {
     try {
       const res = await fetch("data.json?t=" + Date.now());
@@ -747,6 +824,7 @@ VIEWER_HTML = r"""<!DOCTYPE html>
       $("cMissing").textContent = sm.missing ?? 0;
       if ($("cSomeone")) $("cSomeone").textContent = sm.someoneElse ?? 0;
       $("cPeriod").textContent = STATE.period && STATE.period.label ? STATE.period.label : "—";
+      if ($("tabActionCount")) $("tabActionCount").textContent = STATE.rows.filter((r) => r.bucket === "missing").length;
 
       const types = [...new Set(STATE.rows.map((r) => r.type).filter(Boolean))].sort();
       const sel = $("typeFilter");
@@ -785,6 +863,8 @@ VIEWER_HTML = r"""<!DOCTYPE html>
         if (sortKey === k) sortDir *= -1; else { sortKey = k; sortDir = 1; }
         render();
       }));
+    document.querySelectorAll(".tab").forEach((tab) =>
+      tab.addEventListener("click", () => switchTab(tab.dataset.tab)));
     load();
   });
 })();

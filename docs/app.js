@@ -50,7 +50,11 @@ function hydrate(data) {
   $("cMissing").textContent = sm.missing ?? 0;
   if ($("cSomeone")) $("cSomeone").textContent = sm.someoneElse ?? 0;
   $("cPeriod").textContent = (data.period && data.period.label) || "—";
-  if (data.config && data.config.overlayPerson && $("hPerson")) $("hPerson").textContent = data.config.overlayPerson;
+  if (data.config && data.config.overlayPerson) {
+    window.__overlayPerson = data.config.overlayPerson;
+    if ($("hPerson")) $("hPerson").textContent = data.config.overlayPerson;
+  }
+  if ($("tabActionCount")) $("tabActionCount").textContent = state.rows.filter((r) => r.bucket === "missing").length;
 
   const gen = data.generatedAt ? new Date(data.generatedAt) : null;
   $("who").textContent = gen ? "Refreshed " + gen.toLocaleString("en-US") : "";
@@ -99,6 +103,71 @@ function wire() {
       render();
     });
   });
+
+  document.querySelectorAll(".tab").forEach((tab) => {
+    tab.addEventListener("click", () => switchTab(tab.dataset.tab));
+  });
+}
+
+function switchTab(name) {
+  document.querySelectorAll(".tab").forEach((t) =>
+    t.classList.toggle("active", t.dataset.tab === name));
+  $("panelReview").classList.toggle("hidden", name !== "review");
+  $("panelAction").classList.toggle("hidden", name !== "action");
+  if (name === "action") renderAction();
+}
+
+// Opps still needing Mari — the actionable worklist with the exact SFDC steps.
+function toUpdate() {
+  return state.rows.filter((r) => r.bucket === "missing");
+}
+
+function renderAction() {
+  const rows = toUpdate();
+  const list = $("actionList");
+  const person = (window.__overlayPerson) || "Mari Takiyama";
+  list.innerHTML = rows.map((r) => {
+    const link = r.id ? SF_LIGHTNING_URL + "/lightning/r/Opportunity/" + r.id + "/view" : null;
+    const title = link
+      ? '<a class="opp-link" href="' + link + '" target="_blank" rel="noopener">' + esc(r.name) + "</a>"
+      : esc(r.name);
+    // Which place(s) are missing — team role drives the "Add Opportunity Team Member" action.
+    const needTeam = !r.mariOnTeam;
+    const needSplit = !r.mariOnSplit;
+    const teamStep =
+      '<div class="step"><b>1 · Add Opportunity Team Member</b>' +
+      '<div class="meta">Opportunity → Opportunity Team → Add Members</div>' +
+      '<table class="kv"><tbody>' +
+      '<tr><td class="k2">User</td><td class="v2">' + esc(person) + "</td></tr>" +
+      '<tr><td class="k2">Team Role</td><td class="v2">AE Overlay</td></tr>' +
+      '<tr><td class="k2">Opportunity Access</td><td class="v2">Read Only</td></tr>' +
+      "</tbody></table>" +
+      (needTeam ? "" : '<div class="also">Already tagged on the team — no team change needed.</div>') +
+      "</div>";
+    const splitStep =
+      '<div class="step"><b>2 · Add Overlay split</b>' +
+      '<div class="meta">Opportunity → Opportunity Splits → Edit Splits</div>' +
+      '<table class="kv"><tbody>' +
+      '<tr><td class="k2">Split Owner</td><td class="v2">' + esc(person) + "</td></tr>" +
+      '<tr><td class="k2">Split Type</td><td class="v2">Overlay</td></tr>' +
+      "</tbody></table>" +
+      (needSplit ? "" : '<div class="also">Overlay split already set — no split change needed.</div>') +
+      "</div>";
+    return (
+      '<div class="action-card">' +
+      '<div class="action-head">' +
+        '<div class="opp-title">' + title + "</div>" +
+        '<div class="opp-id">' + esc(r.id || "") + "</div>" +
+        '<div class="meta">' + esc(r.account || "—") + " · " + esc(r.owner || "—") +
+          " · " + esc(r.segment || "—") + " · " + esc(r.type || "—") + "</div>" +
+        '<div class="reason">' + esc(r.reason) + "</div>" +
+      "</div>" +
+      '<div class="action-body">' + teamStep + splitStep + "</div>" +
+      "</div>"
+    );
+  }).join("");
+  $("actionEmpty").classList.toggle("hidden", rows.length !== 0);
+  list.classList.toggle("hidden", rows.length === 0);
 }
 
 function filtered() {
