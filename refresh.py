@@ -17,9 +17,9 @@ Each opp is classified OK / Needs Mari / Someone else, then the script writes:
 This is READ-ONLY: it detects and reports. No Salesforce writes are made.
 
 Usage:
-    python3 refresh.py                # last month, default sf org
+    python3 refresh.py                # last month + this month, default sf org
     python3 refresh.py --org prod     # pick an sf CLI alias/username
-    python3 refresh.py --month 2026-06   # override the target month (YYYY-MM)
+    python3 refresh.py --month 2026-06   # override to a single month (YYYY-MM)
 
 Prereq (one time, no admin):
     brew install sf
@@ -82,6 +82,22 @@ def last_month_range(today=None):
     end = first_this - dt.timedelta(days=1)          # last day of prev month
     start = end.replace(day=1)                        # first day of prev month
     return start.isoformat(), end.isoformat(), start.strftime("%B %Y")
+
+
+def last_and_this_month_range(today=None):
+    """First day of last month → last day of THIS month (the default window:
+    covers both last month and the month in progress)."""
+    today = today or dt.date.today()
+    first_this = today.replace(day=1)
+    start = (first_this - dt.timedelta(days=1)).replace(day=1)   # first day of prev month
+    # last day of this month = day before the first of next month
+    end = (dt.date(today.year + (today.month == 12), (today.month % 12) + 1, 1)
+           - dt.timedelta(days=1))
+    if start.year == end.year:
+        label = f"{start.strftime('%B')} – {end.strftime('%B %Y')}"
+    else:
+        label = f"{start.strftime('%B %Y')} – {end.strftime('%B %Y')}"
+    return start.isoformat(), end.isoformat(), label
 
 
 def month_range(yyyy_mm):
@@ -258,10 +274,11 @@ def copy_to_drive(path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--org", help="sf CLI target org alias or username")
-    ap.add_argument("--month", help="target month YYYY-MM (default: last month)")
+    ap.add_argument("--month", help="target a single month YYYY-MM "
+                    "(default: last month + this month)")
     args = ap.parse_args()
 
-    start, end, label = month_range(args.month) if args.month else last_month_range()
+    start, end, label = month_range(args.month) if args.month else last_and_this_month_range()
 
     print(f"Pulling Japan Closed-Won opps for {label} ({start} … {end}) …")
     records = run_sf_query(build_soql(start, end), org=args.org)
