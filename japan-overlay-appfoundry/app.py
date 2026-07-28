@@ -490,7 +490,7 @@ def _admin_html(status: str, msgs: list) -> str:
 </style></head>
 <body><div class="wrap">
 <div class="bar"></div>
-<h1>Japan Overlay AE Review — Data Upload</h1>
+<h1>Japan Overlay AE Review &amp; Update — Data Upload</h1>
 <p class="sub">Drag <code>{html_module.escape(EXPECTED_FILE)}</code> (produced by <code>refresh.py</code>) onto the box.
 Re-uploading <b>replaces</b> the data. Anyone with the link can upload here.</p>
 <div class="card">
@@ -516,7 +516,7 @@ VIEWER_HTML = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Japan Overlay AE Review</title>
+<title>Japan Overlay AE Review &amp; Update</title>
 <style>
   :root {
     --bg: #f7f8fa; --panel: #ffffff; --panel2: #f3f5f7; --line: #e3e7eb;
@@ -614,7 +614,7 @@ VIEWER_HTML = r"""<!DOCTYPE html>
 <body>
 <header>
   <div>
-    <h1>Japan Overlay AE Review</h1>
+    <h1>Japan Overlay AE Review &amp; Update</h1>
   </div>
   <div class="spacer"></div>
   <span id="who" class="sub"></span>
