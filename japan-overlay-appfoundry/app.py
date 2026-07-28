@@ -587,7 +587,6 @@ VIEWER_HTML = r"""<!DOCTYPE html>
 <header>
   <div>
     <h1>Japan Overlay AE Review</h1>
-    <div class="sub">Is <b id="hPerson">Mari Takiyama</b> tagged as AE Overlay in BOTH the Opportunity Team and the Overlay split? · Japan · Commercial + Enterprise · commissionable · Booking ARR &gt; 0</div>
   </div>
   <div class="spacer"></div>
   <span id="who" class="sub"></span>
@@ -735,7 +734,7 @@ VIEWER_HTML = r"""<!DOCTYPE html>
         overlayPerson: (data.config && data.config.overlayPerson) || "Mari Takiyama",
       };
       $("who").textContent = STATE.uploadedAt ? "data uploaded: " + STATE.uploadedAt : "";
-      $("hPerson").textContent = STATE.overlayPerson;
+      if ($("hPerson")) $("hPerson").textContent = STATE.overlayPerson;
       if (!STATE.rows.length) {
         $("dashboard").classList.add("hidden");
         setStatus("<b>No data yet.</b> Drag <code>Japan_Overlay_AE_Automation.csv</code> onto the <a href='/admin'>upload page</a>.", true);

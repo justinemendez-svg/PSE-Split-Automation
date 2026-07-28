@@ -50,7 +50,7 @@ function hydrate(data) {
   $("cMissing").textContent = sm.missing ?? 0;
   $("cSomeone").textContent = sm.someoneElse ?? 0;
   $("cPeriod").textContent = (data.period && data.period.label) || "—";
-  if (data.config && data.config.overlayPerson) $("hPerson").textContent = data.config.overlayPerson;
+  if (data.config && data.config.overlayPerson && $("hPerson")) $("hPerson").textContent = data.config.overlayPerson;
 
   const gen = data.generatedAt ? new Date(data.generatedAt) : null;
   $("who").textContent = gen ? "Refreshed " + gen.toLocaleString("en-US") : "";
