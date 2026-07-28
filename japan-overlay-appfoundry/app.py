@@ -598,16 +598,16 @@ VIEWER_HTML = r"""<!DOCTYPE html>
 
   <div id="dashboard" class="hidden">
     <div class="cards">
-      <div class="card click active" data-filter="" id="cardTotal"><div class="k">In-scope opps</div><div class="v" id="cTotal">–</div></div>
-      <div class="card ok click" data-filter="ok"><div class="k">OK — Mari in both</div><div class="v" id="cOk">–</div></div>
-      <div class="card warn click" data-filter="missing"><div class="k">Needs Mari</div><div class="v" id="cMissing">–</div></div>
-      <div class="card bad click" data-filter="someone_else"><div class="k">Someone else tagged</div><div class="v" id="cSomeone">–</div></div>
+      <div class="card click active" data-filter="" id="cardTotal"><div class="k">Total opps</div><div class="v" id="cTotal">–</div></div>
+      <div class="card ok click" data-filter="ok"><div class="k">Overlay AE tagged</div><div class="v" id="cOk">–</div></div>
+      <div class="card warn click" data-filter="missing"><div class="k">Overlay AE to update</div><div class="v" id="cMissing">–</div></div>
       <div class="card"><div class="k">Period</div><div class="v" id="cPeriod" style="font-size:18px">–</div></div>
     </div>
 
     <div class="toolbar">
       <input type="search" id="search" placeholder="Search opp, account, owner, ID…" />
       <select id="typeFilter" title="Filter by deal type"><option value="">All types</option></select>
+      <select id="segmentFilter" title="Filter by market segment"><option value="">All segments</option></select>
       <span id="filterNote" class="sub"></span>
       <div class="spacer"></div>
     </div>
@@ -647,7 +647,7 @@ VIEWER_HTML = r"""<!DOCTYPE html>
   const $ = (id) => document.getElementById(id);
   let STATE = { rows: [], period: null, summary: null, sfBaseUrl: "", overlayPerson: "Mari Takiyama" };
   let sortKey = "closeDate", sortDir = -1;
-  let bucketFilter = "", typeFilter = "";
+  let bucketFilter = "", typeFilter = "", segmentFilter = "";
 
   const fmtMoney = (n) => n == null ? "—" : n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
   const fmtDate = (s) => (s ? new Date(s + "T00:00:00").toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "—");
@@ -670,6 +670,7 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     let rows = STATE.rows.slice();
     if (bucketFilter) rows = rows.filter((r) => r.bucket === bucketFilter);
     if (typeFilter) rows = rows.filter((r) => r.type === typeFilter);
+    if (segmentFilter) rows = rows.filter((r) => r.segment === segmentFilter);
     if (q) rows = rows.filter((r) =>
       [r.name, r.account, r.owner, r.id, r.reason, (r.otherOverlay || []).join(" ")]
         .some((v) => String(v == null ? "" : v).toLowerCase().includes(q)));
@@ -744,12 +745,16 @@ VIEWER_HTML = r"""<!DOCTYPE html>
       $("cTotal").textContent = sm.total ?? STATE.rows.length;
       $("cOk").textContent = sm.ok ?? 0;
       $("cMissing").textContent = sm.missing ?? 0;
-      $("cSomeone").textContent = sm.someoneElse ?? 0;
+      if ($("cSomeone")) $("cSomeone").textContent = sm.someoneElse ?? 0;
       $("cPeriod").textContent = STATE.period && STATE.period.label ? STATE.period.label : "—";
 
       const types = [...new Set(STATE.rows.map((r) => r.type).filter(Boolean))].sort();
       const sel = $("typeFilter");
       for (const t of types) { const o = document.createElement("option"); o.value = t; o.textContent = t; sel.appendChild(o); }
+
+      const segments = [...new Set(STATE.rows.map((r) => r.segment).filter(Boolean))].sort();
+      const segSel = $("segmentFilter");
+      for (const s of segments) { const o = document.createElement("option"); o.value = s; o.textContent = s; segSel.appendChild(o); }
 
       $("status").classList.add("hidden");
       $("dashboard").classList.remove("hidden");
@@ -764,6 +769,7 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     $("csvBtn").addEventListener("click", exportCsv);
     $("search").addEventListener("input", render);
     $("typeFilter").addEventListener("change", (e) => { typeFilter = e.target.value; render(); });
+    $("segmentFilter").addEventListener("change", (e) => { segmentFilter = e.target.value; render(); });
 
     document.querySelectorAll(".card.click").forEach((card) => {
       card.addEventListener("click", () => {

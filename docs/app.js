@@ -6,7 +6,7 @@
  */
 const SF_LIGHTNING_URL = "https://zendesk.lightning.force.com";
 
-const state = { rows: [], bucket: "", type: "", q: "", sortKey: "closeDate", sortDir: -1 };
+const state = { rows: [], bucket: "", type: "", segment: "", q: "", sortKey: "closeDate", sortDir: -1 };
 
 const $ = (id) => document.getElementById(id);
 
@@ -48,7 +48,7 @@ function hydrate(data) {
   $("cTotal").textContent = sm.total ?? state.rows.length;
   $("cOk").textContent = sm.ok ?? 0;
   $("cMissing").textContent = sm.missing ?? 0;
-  $("cSomeone").textContent = sm.someoneElse ?? 0;
+  if ($("cSomeone")) $("cSomeone").textContent = sm.someoneElse ?? 0;
   $("cPeriod").textContent = (data.period && data.period.label) || "—";
   if (data.config && data.config.overlayPerson && $("hPerson")) $("hPerson").textContent = data.config.overlayPerson;
 
@@ -63,6 +63,13 @@ function hydrate(data) {
     o.value = t; o.textContent = t; sel.appendChild(o);
   }
 
+  const segments = [...new Set(state.rows.map((r) => r.segment).filter(Boolean))].sort();
+  const segSel = $("segmentFilter");
+  for (const s of segments) {
+    const o = document.createElement("option");
+    o.value = s; o.textContent = s; segSel.appendChild(o);
+  }
+
   $("status").classList.add("hidden");
   $("dashboard").classList.remove("hidden");
   wire();
@@ -72,6 +79,7 @@ function hydrate(data) {
 function wire() {
   $("search").addEventListener("input", (e) => { state.q = e.target.value.toLowerCase().trim(); render(); });
   $("typeFilter").addEventListener("change", (e) => { state.type = e.target.value; render(); });
+  $("segmentFilter").addEventListener("change", (e) => { state.segment = e.target.value; render(); });
   $("csvBtn").addEventListener("click", exportCsv);
 
   document.querySelectorAll(".card.click").forEach((card) => {
@@ -97,6 +105,7 @@ function filtered() {
   let rows = state.rows;
   if (state.bucket) rows = rows.filter((r) => r.bucket === state.bucket);
   if (state.type) rows = rows.filter((r) => r.type === state.type);
+  if (state.segment) rows = rows.filter((r) => r.segment === state.segment);
   if (state.q) {
     rows = rows.filter((r) =>
       [r.name, r.account, r.owner, r.id, r.reason, (r.overlayTeamMembers || []).join(" ")]

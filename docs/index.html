@@ -85,16 +85,16 @@
 
   <div id="dashboard" class="hidden">
     <div class="cards">
-      <div class="card click active" data-filter="" id="cardTotal"><div class="k">In-scope opps</div><div class="v" id="cTotal">–</div></div>
-      <div class="card ok click" data-filter="ok"><div class="k">OK — Mari in both</div><div class="v" id="cOk">–</div></div>
-      <div class="card warn click" data-filter="missing"><div class="k">Needs Mari</div><div class="v" id="cMissing">–</div></div>
-      <div class="card bad click" data-filter="someone_else"><div class="k">Someone else tagged</div><div class="v" id="cSomeone">–</div></div>
+      <div class="card click active" data-filter="" id="cardTotal"><div class="k">Total opps</div><div class="v" id="cTotal">–</div></div>
+      <div class="card ok click" data-filter="ok"><div class="k">Overlay AE tagged</div><div class="v" id="cOk">–</div></div>
+      <div class="card warn click" data-filter="missing"><div class="k">Overlay AE to update</div><div class="v" id="cMissing">–</div></div>
       <div class="card"><div class="k">Period</div><div class="v" id="cPeriod" style="font-size:18px">–</div></div>
     </div>
 
     <div class="toolbar">
       <input type="search" id="search" placeholder="Search opp, account, owner, ID…" />
       <select id="typeFilter" title="Filter by deal type"><option value="">All types</option></select>
+      <select id="segmentFilter" title="Filter by market segment"><option value="">All segments</option></select>
       <span id="filterNote" class="sub"></span>
       <div class="spacer"></div>
     </div>
