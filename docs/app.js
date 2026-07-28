@@ -80,10 +80,16 @@ function hydrate(data) {
   render();
 }
 
+// Re-render whichever tab is currently showing (filters are shared across both).
+function refreshView() {
+  const onAction = !$("panelAction").classList.contains("hidden");
+  if (onAction) renderAction(); else render();
+}
+
 function wire() {
-  $("search").addEventListener("input", (e) => { state.q = e.target.value.toLowerCase().trim(); render(); });
-  $("typeFilter").addEventListener("change", (e) => { state.type = e.target.value; render(); });
-  $("segmentFilter").addEventListener("change", (e) => { state.segment = e.target.value; render(); });
+  $("search").addEventListener("input", (e) => { state.q = e.target.value.toLowerCase().trim(); refreshView(); });
+  $("typeFilter").addEventListener("change", (e) => { state.type = e.target.value; refreshView(); });
+  $("segmentFilter").addEventListener("change", (e) => { state.segment = e.target.value; refreshView(); });
   $("csvBtn").addEventListener("click", exportCsv);
 
   document.querySelectorAll(".card.click").forEach((card) => {
@@ -118,8 +124,17 @@ function switchTab(name) {
 }
 
 // Opps still needing Mari — the actionable worklist with the exact SFDC steps.
+// Applies the shared type/segment/search filters (bucket is forced to "missing").
 function toUpdate() {
-  return state.rows.filter((r) => r.bucket === "missing");
+  let rows = state.rows.filter((r) => r.bucket === "missing");
+  if (state.type) rows = rows.filter((r) => r.type === state.type);
+  if (state.segment) rows = rows.filter((r) => r.segment === state.segment);
+  if (state.q) {
+    rows = rows.filter((r) =>
+      [r.name, r.account, r.owner, r.id, r.reason, (r.overlayTeamMembers || []).join(" ")]
+        .some((v) => String(v == null ? "" : v).toLowerCase().includes(state.q)));
+  }
+  return rows;
 }
 
 function renderAction() {
@@ -153,14 +168,25 @@ function renderAction() {
       "</tbody></table>" +
       (needSplit ? "" : '<div class="also">Overlay split already set — no split change needed.</div>') +
       "</div>";
+    // Deep-link straight to this opp's Opportunity Team related list to add Mari.
+    const teamUrl = r.id
+      ? SF_LIGHTNING_URL + "/lightning/r/Opportunity/" + r.id + "/related/OpportunityTeamMembers/view"
+      : null;
+    const updateBtn = teamUrl
+      ? '<a class="btn-sf" href="' + teamUrl + '" target="_blank" rel="noopener" ' +
+        'title="Opens this opp’s Opportunity Team in Salesforce so you can add Mari">Update in Salesforce →</a>'
+      : "";
     return (
       '<div class="action-card">' +
       '<div class="action-head">' +
-        '<div class="opp-title">' + title + "</div>" +
-        '<div class="opp-id">' + esc(r.id || "") + "</div>" +
-        '<div class="meta">' + esc(r.account || "—") + " · " + esc(r.owner || "—") +
-          " · " + esc(r.segment || "—") + " · " + esc(r.type || "—") + "</div>" +
-        '<div class="reason">' + esc(r.reason) + "</div>" +
+        '<div class="head-main">' +
+          '<div class="opp-title">' + title + "</div>" +
+          '<div class="opp-id">' + esc(r.id || "") + "</div>" +
+          '<div class="meta">' + esc(r.account || "—") + " · " + esc(r.owner || "—") +
+            " · " + esc(r.segment || "—") + " · " + esc(r.type || "—") + "</div>" +
+          '<div class="reason">' + esc(r.reason) + "</div>" +
+        "</div>" +
+        updateBtn +
       "</div>" +
       '<div class="action-body">' + teamStep + splitStep + "</div>" +
       "</div>"

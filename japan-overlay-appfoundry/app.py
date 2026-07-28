@@ -593,7 +593,13 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     box-shadow: inset 3px 0 0 var(--warn); }
   .action-head { padding: 14px 18px; border-bottom: 1px solid var(--line); }
   .action-head .opp-title { font-size: 15px; font-weight: 650; }
+  .action-head { display: flex; align-items: flex-start; gap: 14px; }
+  .action-head .head-main { flex: 1; min-width: 0; }
   .action-head .reason { color: var(--warn); font-weight: 600; margin-top: 4px; }
+  .btn-sf { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; text-decoration: none;
+    background: var(--accent2); color: #fff; font-weight: 600; border-radius: 8px; padding: 9px 14px;
+    white-space: nowrap; font-size: 13px; }
+  .btn-sf:hover { background: var(--accent); text-decoration: none; }
   .action-body { padding: 14px 18px; display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; }
   .action-body .step { flex: 1; min-width: 260px; }
   .action-body .step b { color: var(--txt); }
@@ -626,12 +632,6 @@ VIEWER_HTML = r"""<!DOCTYPE html>
       <div class="card"><div class="k">Period</div><div class="v" id="cPeriod" style="font-size:18px">–</div></div>
     </div>
 
-    <div class="tabs">
-      <button class="tab active" id="tabReview" data-tab="review">Review</button>
-      <button class="tab" id="tabAction" data-tab="action">Overlay AE to update <span class="badge" id="tabActionCount">0</span></button>
-    </div>
-
-    <div id="panelReview">
     <div class="toolbar">
       <input type="search" id="search" placeholder="Search opp, account, owner, ID…" />
       <select id="typeFilter" title="Filter by deal type"><option value="">All types</option></select>
@@ -640,6 +640,12 @@ VIEWER_HTML = r"""<!DOCTYPE html>
       <div class="spacer"></div>
     </div>
 
+    <div class="tabs">
+      <button class="tab active" id="tabReview" data-tab="review">Review</button>
+      <button class="tab" id="tabAction" data-tab="action">Overlay AE to update <span class="badge" id="tabActionCount">0</span></button>
+    </div>
+
+    <div id="panelReview">
     <table id="tbl">
       <colgroup>
         <col class="c-opp" /><col class="c-acct" /><col class="c-type" />
@@ -765,8 +771,22 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     if (name === "action") renderAction();
   }
 
+  function actionRows() {
+    const q = $("search").value.trim().toLowerCase();
+    let rows = STATE.rows.filter((r) => r.bucket === "missing");
+    if (typeFilter) rows = rows.filter((r) => r.type === typeFilter);
+    if (segmentFilter) rows = rows.filter((r) => r.segment === segmentFilter);
+    if (q) rows = rows.filter((r) =>
+      [r.name, r.account, r.owner, r.id, r.reason].some((v) => String(v == null ? "" : v).toLowerCase().includes(q)));
+    return rows;
+  }
+
+  function refreshView() {
+    if (!$("panelAction").classList.contains("hidden")) renderAction(); else render();
+  }
+
   function renderAction() {
-    const rows = STATE.rows.filter((r) => r.bucket === "missing");
+    const rows = actionRows();
     const person = STATE.overlayPerson || "Mari Takiyama";
     $("actionList").innerHTML = rows.map((r) => {
       const link = STATE.sfBaseUrl && r.id
@@ -790,11 +810,18 @@ VIEWER_HTML = r"""<!DOCTYPE html>
         '<tr><td class="k2">Split Type</td><td class="v2">Overlay</td></tr>' +
         "</tbody></table>" +
         (needSplit ? "" : '<div class="also">Overlay split already set — no split change needed.</div>') + "</div>";
+      const teamUrl = STATE.sfBaseUrl && r.id
+        ? esc(STATE.sfBaseUrl) + "/lightning/r/Opportunity/" + esc(r.id) + "/related/OpportunityTeamMembers/view"
+        : null;
+      const updateBtn = teamUrl
+        ? '<a class="btn-sf" href="' + teamUrl + '" target="_blank" rel="noopener" ' +
+          'title="Opens this opp’s Opportunity Team in Salesforce so you can add Mari">Update in Salesforce &rarr;</a>'
+        : "";
       return '<div class="action-card">' +
-        '<div class="action-head"><div class="opp-title">' + link + "</div>" +
+        '<div class="action-head"><div class="head-main"><div class="opp-title">' + link + "</div>" +
           '<div class="opp-id">' + esc(r.id || "") + "</div>" +
           '<div class="meta">' + esc(r.account || "—") + " · " + esc(r.owner || "—") + " · " + esc(r.segment || "—") + " · " + esc(r.type || "—") + "</div>" +
-          '<div class="reason">' + esc(r.reason) + "</div></div>" +
+          '<div class="reason">' + esc(r.reason) + "</div></div>" + updateBtn + "</div>" +
         '<div class="action-body">' + teamStep + splitStep + "</div></div>";
     }).join("");
     $("actionEmpty").classList.toggle("hidden", rows.length !== 0);
@@ -845,9 +872,9 @@ VIEWER_HTML = r"""<!DOCTYPE html>
 
   document.addEventListener("DOMContentLoaded", () => {
     $("csvBtn").addEventListener("click", exportCsv);
-    $("search").addEventListener("input", render);
-    $("typeFilter").addEventListener("change", (e) => { typeFilter = e.target.value; render(); });
-    $("segmentFilter").addEventListener("change", (e) => { segmentFilter = e.target.value; render(); });
+    $("search").addEventListener("input", refreshView);
+    $("typeFilter").addEventListener("change", (e) => { typeFilter = e.target.value; refreshView(); });
+    $("segmentFilter").addEventListener("change", (e) => { segmentFilter = e.target.value; refreshView(); });
 
     document.querySelectorAll(".card.click").forEach((card) => {
       card.addEventListener("click", () => {
