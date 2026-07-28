@@ -532,8 +532,6 @@ VIEWER_HTML = r"""<!DOCTYPE html>
   button.ghost { background: transparent; border: 1px solid var(--line); color: var(--txt); }
   button.ghost:hover { background: var(--panel2); }
   main { padding: 24px; max-width: 1320px; margin: 0 auto; }
-  .banner { background: rgba(34,197,94,.08); border: 1px solid rgba(34,197,94,.3); color: var(--ok);
-    border-radius: 10px; padding: 10px 14px; margin-bottom: 18px; font-size: 13px; }
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 22px; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
   .card.click { cursor: pointer; }
@@ -594,10 +592,6 @@ VIEWER_HTML = r"""<!DOCTYPE html>
   <div id="status" class="status">Loading…</div>
 
   <div id="dashboard" class="hidden">
-    <div class="banner">
-      <b>Read-only.</b> This worklist detects &amp; reports only — no Salesforce writes. Data is from the last monthly CSV upload.
-    </div>
-
     <div class="cards">
       <div class="card click active" data-filter="" id="cardTotal"><div class="k">In-scope opps</div><div class="v" id="cTotal">–</div></div>
       <div class="card ok click" data-filter="ok"><div class="k">OK — Mari in both</div><div class="v" id="cOk">–</div></div>
