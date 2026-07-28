@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Japan Overlay AE Review</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #181b22; --panel2: #1f232c; --line: #2a2f3a;
+    --txt: #e6e9ef; --muted: #9aa3b2; --accent: #3b82f6; --accent2: #2563eb;
+    --warn: #f59e0b; --bad: #ef4444; --ok: #22c55e; --chip: #2a2f3a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--txt);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 16px 24px; background: var(--panel); border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; z-index: 10; }
+  header h1 { font-size: 17px; margin: 0; font-weight: 650; letter-spacing: .2px; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  .spacer { flex: 1; }
+  button { font: inherit; font-weight: 600; cursor: pointer; border: none; border-radius: 8px;
+    padding: 9px 16px; color: #fff; background: var(--accent2); transition: background .15s, opacity .15s; }
+  button:hover { background: var(--accent); }
+  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--txt); }
+  button.ghost:hover { background: var(--panel2); }
+  main { padding: 24px; max-width: 1320px; margin: 0 auto; }
+  .banner { background: rgba(34,197,94,.08); border: 1px solid rgba(34,197,94,.3); color: var(--ok);
+    border-radius: 10px; padding: 10px 14px; margin-bottom: 18px; font-size: 13px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 22px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+  .card.click { cursor: pointer; }
+  .card.click:hover { border-color: var(--accent); }
+  .card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .card .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+  .card .v { font-size: 28px; font-weight: 700; margin-top: 6px; }
+  .card.ok .v { color: var(--ok); }
+  .card.warn .v { color: var(--warn); }
+  .card.bad .v { color: var(--bad); }
+  .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+  .toolbar input[type=search] { background: var(--panel2); border: 1px solid var(--line); color: var(--txt);
+    border-radius: 8px; padding: 8px 12px; min-width: 260px; font: inherit; }
+  .toolbar select { background: var(--panel2); border: 1px solid var(--line); color: var(--txt);
+    border-radius: 8px; padding: 8px 12px; font: inherit; cursor: pointer; }
+  table { width: 100%; table-layout: fixed; border-collapse: collapse; background: var(--panel); border-radius: 12px; overflow: hidden; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: break-word; word-break: break-word; }
+  col.c-opp { width: 22%; } col.c-acct { width: 13%; } col.c-type { width: 9%; }
+  col.c-close { width: 9%; } col.c-amount { width: 9%; } col.c-team { width: 8%; }
+  col.c-split { width: 8%; } col.c-status { width: 22%; }
+  th { background: var(--panel2); color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .4px; cursor: pointer; }
+  th:hover { color: var(--txt); }
+  tr:last-child td { border-bottom: none; }
+  tr.b-missing td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
+  tr.b-someone_else td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
+  tr.b-ok td:first-child { box-shadow: inset 3px 0 0 var(--ok); }
+  .opp-link { font-weight: 600; }
+  .opp-link:hover { text-decoration: underline; }
+  .opp-id { color: var(--muted); font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin-top: 3px; }
+  .meta { color: var(--muted); font-size: 12px; margin-top: 3px; }
+  .chip { display: inline-block; background: var(--chip); border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 600; }
+  .chip.ok { background: rgba(34,197,94,.15); color: var(--ok); }
+  .chip.warn { background: rgba(245,158,11,.15); color: var(--warn); }
+  .chip.bad { background: rgba(239,68,68,.15); color: var(--bad); }
+  .yn { font-weight: 700; }
+  .yn.y { color: var(--ok); } .yn.n { color: var(--warn); }
+  .status-line { margin-top: 5px; }
+  .empty, .status { color: var(--muted); padding: 40px; text-align: center; }
+  .status.err { color: var(--bad); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  footer { color: var(--muted); font-size: 12px; padding: 20px 24px; text-align: center; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Japan Overlay AE Review</h1>
+    <div class="sub">Is <b id="hPerson">Mari Takiyama</b> tagged as AE Overlay in BOTH the Opportunity Team and the Overlay split? · Japan · Commercial + Enterprise · any type</div>
+  </div>
+  <div class="spacer"></div>
+  <span id="who" class="sub"></span>
+  <button class="ghost" id="csvBtn">Export CSV</button>
+</header>
+
+<main>
+  <div id="status" class="status">Loading…</div>
+
+  <div id="dashboard" class="hidden">
+    <div class="banner">
+      <b>Read-only.</b> This worklist detects &amp; reports only — no Salesforce writes. Data is from the last <code>refresh.py</code> pull.
+    </div>
+
+    <div class="cards">
+      <div class="card click active" data-filter="" id="cardTotal"><div class="k">In-scope opps</div><div class="v" id="cTotal">–</div></div>
+      <div class="card ok click" data-filter="ok"><div class="k">OK — Mari in both</div><div class="v" id="cOk">–</div></div>
+      <div class="card warn click" data-filter="missing"><div class="k">Needs Mari</div><div class="v" id="cMissing">–</div></div>
+      <div class="card bad click" data-filter="someone_else"><div class="k">Someone else tagged</div><div class="v" id="cSomeone">–</div></div>
+      <div class="card"><div class="k">Period</div><div class="v" id="cPeriod" style="font-size:18px">–</div></div>
+    </div>
+
+    <div class="toolbar">
+      <input type="search" id="search" placeholder="Search opp, account, owner, ID…" />
+      <select id="typeFilter" title="Filter by deal type"><option value="">All types</option></select>
+      <span id="filterNote" class="sub"></span>
+      <div class="spacer"></div>
+    </div>
+
+    <table id="tbl">
+      <colgroup>
+        <col class="c-opp" /><col class="c-acct" /><col class="c-type" />
+        <col class="c-close" /><col class="c-amount" /><col class="c-team" />
+        <col class="c-split" /><col class="c-status" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th data-sort="name">Opportunity</th>
+          <th data-sort="account">Account</th>
+          <th data-sort="type">Type</th>
+          <th data-sort="closeDate">Close Date</th>
+          <th data-sort="amount">Amount</th>
+          <th data-sort="mariOnTeam">Team role</th>
+          <th data-sort="mariOnSplit">Overlay split</th>
+          <th data-sort="bucket">Status</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+    <div id="emptyRows" class="empty hidden">No opportunities match the current filter.</div>
+  </div>
+</main>
+
+<footer>
+  Read-only monthly worklist · Dir Team = Japan · Commercial + Enterprise · Closed-Won, any type.
+  Reload after <code>python3 refresh.py</code> to see fresh data.
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

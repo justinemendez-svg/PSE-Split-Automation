@@ -1,0 +1,11 @@
+.DS_Store
+node_modules/
+*.log
+logs/
+# Generated each run; also copied to the GTM Ops Drive folder — not source.
+Japan_Overlay_AE_Automation.csv
+# Local Python cruft
+__pycache__/
+*.pyc
+.venv/
+venv/
