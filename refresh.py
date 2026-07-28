@@ -51,7 +51,7 @@ CSV_OUT = os.path.join(HERE, CSV_NAME)
 # Also drop a copy in the GTM Ops shared Drive (Google Drive for Desktop syncs
 # it). Set to None to skip the Drive copy.
 DRIVE_DIR = ("/Users/justine.mendez/Library/CloudStorage/"
-             "GoogleDrive-justine.mendez@zendesk.com/Shared drives/GTM Ops")
+             "GoogleDrive-justine.mendez@zendesk.com/Shared drives/GTM Ops/MSS")
 
 # ---- CONFIG — the review rule (confirmed against prod 2026-07-28) ------------
 OVERLAY_PERSON = "Mari Takiyama"          # sole permitted AE Overlay
