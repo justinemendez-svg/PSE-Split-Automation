@@ -677,8 +677,7 @@ VIEWER_HTML = r"""<!DOCTYPE html>
 </main>
 
 <footer>
-  Read-only monthly worklist · Dir Team = Japan · Commercial + Enterprise · Closed-Won · commissionable · Total Booking ARR (USD) &gt; 0.
-  &nbsp;·&nbsp; <a href="/admin">Upload data →</a>
+  <a href="/admin">Upload data →</a>
 </footer>
 
 <script>
