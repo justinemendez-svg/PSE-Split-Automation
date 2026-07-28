@@ -449,36 +449,36 @@ def _admin_html(status: str, msgs: list) -> str:
 <title>Japan Overlay — Upload</title>
 <style>
  :root{{
-   --bg:#0d0b0f; --panel:#16121a; --line:#2c2230;
-   --pink:#ff5ca8; --pink-soft:#ff8fc4; --txt:#f3eef2; --muted:#b59db0;
+   --bg:#0d1211; --panel:#121a19; --line:#22302d;
+   --pink:#78A300; --pink-soft:#a3d21a; --txt:#eef3ef; --muted:#93a89b;
    --ok:#3ddc97; --err:#ff6b6b;
  }}
  *{{box-sizing:border-box}}
  body{{margin:0;background:var(--bg);color:var(--txt);
    font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}}
  .wrap{{max-width:720px;margin:48px auto;padding:0 22px}}
- .bar{{height:4px;border-radius:99px;background:linear-gradient(90deg,var(--pink),#9d4edd);margin-bottom:26px}}
+ .bar{{height:4px;border-radius:99px;background:linear-gradient(90deg,var(--pink),#17494D);margin-bottom:26px}}
  h1{{font-size:21px;font-weight:680;letter-spacing:.2px;margin:0 0 6px}}
  .sub{{color:var(--muted);font-size:13px;margin:0 0 26px}}
  .card{{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px}}
  .drop{{border:2px dashed var(--pink);border-radius:12px;padding:34px;text-align:center;
-   background:rgba(255,92,168,.06);transition:background .15s}}
- .drop:hover{{background:rgba(255,92,168,.12)}}
+   background:rgba(120,163,0,.06);transition:background .15s}}
+ .drop:hover{{background:rgba(120,163,0,.12)}}
  .drop .big{{font-size:15px;font-weight:600;color:var(--pink-soft)}}
  .drop small{{color:var(--muted)}}
  input[type=file]{{color:var(--txt);margin:12px 0 4px;font:inherit}}
- input[type=file]::file-selector-button{{background:rgba(255,92,168,.15);color:var(--pink-soft);
+ input[type=file]::file-selector-button{{background:rgba(120,163,0,.15);color:var(--pink-soft);
    border:1px solid var(--pink);border-radius:8px;padding:7px 13px;font:inherit;font-weight:600;cursor:pointer;margin-right:10px}}
  button{{font:inherit;font-weight:680;cursor:pointer;border:none;border-radius:9px;padding:11px 20px;
-   color:#1a0511;background:var(--pink);margin-top:18px;transition:transform .08s,box-shadow .15s,background .15s}}
- button:hover{{background:var(--pink-soft);box-shadow:0 4px 18px rgba(255,92,168,.35)}}
+   color:#0d1211;background:var(--pink);margin-top:18px;transition:transform .08s,box-shadow .15s,background .15s}}
+ button:hover{{background:var(--pink-soft);box-shadow:0 4px 18px rgba(120,163,0,.35)}}
  button:active{{transform:translateY(1px)}}
- .status{{margin-top:20px;padding:13px 16px;border-radius:10px;background:#120e16;border:1px solid var(--line);color:var(--muted)}}
+ .status{{margin-top:20px;padding:13px 16px;border-radius:10px;background:#0e1615;border:1px solid var(--line);color:var(--muted)}}
  .status b{{color:var(--txt)}}
  .msg{{padding:11px 14px;border-radius:9px;margin-bottom:14px;font-weight:600}}
  .msg.ok{{color:var(--ok);background:rgba(61,220,151,.08);border:1px solid rgba(61,220,151,.25)}}
  .msg.err{{color:var(--err);background:rgba(255,107,107,.08);border:1px solid rgba(255,107,107,.25)}}
- code{{background:#241a29;color:var(--pink-soft);padding:2px 7px;border-radius:5px;font-size:12.5px}}
+ code{{background:#1a2422;color:var(--pink-soft);padding:2px 7px;border-radius:5px;font-size:12.5px}}
  a{{color:var(--pink-soft);text-decoration:none}} a:hover{{text-decoration:underline}}
  .foot{{margin-top:24px;font-size:12px;color:var(--muted)}}
 </style></head>
@@ -514,7 +514,7 @@ VIEWER_HTML = r"""<!DOCTYPE html>
 <style>
   :root {
     --bg: #0f1115; --panel: #181b22; --panel2: #1f232c; --line: #2a2f3a;
-    --txt: #e6e9ef; --muted: #9aa3b2; --accent: #3b82f6; --accent2: #2563eb;
+    --txt: #e6e9ef; --muted: #9aa3b2; --accent: #78A300; --accent2: #17494D;
     --warn: #f59e0b; --bad: #ef4444; --ok: #22c55e; --chip: #2a2f3a;
   }
   * { box-sizing: border-box; }
