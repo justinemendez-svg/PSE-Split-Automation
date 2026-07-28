@@ -449,9 +449,9 @@ def _admin_html(status: str, msgs: list) -> str:
 <title>Japan Overlay — Upload</title>
 <style>
  :root{{
-   --bg:#0d1211; --panel:#121a19; --line:#22302d;
-   --pink:#78A300; --pink-soft:#a3d21a; --txt:#eef3ef; --muted:#93a89b;
-   --ok:#3ddc97; --err:#ff6b6b;
+   --bg:#f7f8fa; --panel:#ffffff; --line:#e3e7eb;
+   --pink:#78A300; --pink-soft:#17494D; --txt:#1b2733; --muted:#68737d;
+   --ok:#3f8c00; --err:#d92d20;
  }}
  *{{box-sizing:border-box}}
  body{{margin:0;background:var(--bg);color:var(--txt);
@@ -473,12 +473,12 @@ def _admin_html(status: str, msgs: list) -> str:
    color:#0d1211;background:var(--pink);margin-top:18px;transition:transform .08s,box-shadow .15s,background .15s}}
  button:hover{{background:var(--pink-soft);box-shadow:0 4px 18px rgba(120,163,0,.35)}}
  button:active{{transform:translateY(1px)}}
- .status{{margin-top:20px;padding:13px 16px;border-radius:10px;background:#0e1615;border:1px solid var(--line);color:var(--muted)}}
+ .status{{margin-top:20px;padding:13px 16px;border-radius:10px;background:#f3f5f7;border:1px solid var(--line);color:var(--muted)}}
  .status b{{color:var(--txt)}}
  .msg{{padding:11px 14px;border-radius:9px;margin-bottom:14px;font-weight:600}}
- .msg.ok{{color:var(--ok);background:rgba(61,220,151,.08);border:1px solid rgba(61,220,151,.25)}}
- .msg.err{{color:var(--err);background:rgba(255,107,107,.08);border:1px solid rgba(255,107,107,.25)}}
- code{{background:#1a2422;color:var(--pink-soft);padding:2px 7px;border-radius:5px;font-size:12.5px}}
+ .msg.ok{{color:var(--ok);background:rgba(63,140,0,.08);border:1px solid rgba(63,140,0,.25)}}
+ .msg.err{{color:var(--err);background:rgba(217,45,32,.08);border:1px solid rgba(217,45,32,.25)}}
+ code{{background:#eef1f3;color:var(--pink-soft);padding:2px 7px;border-radius:5px;font-size:12.5px}}
  a{{color:var(--pink-soft);text-decoration:none}} a:hover{{text-decoration:underline}}
  .foot{{margin-top:24px;font-size:12px;color:var(--muted)}}
 </style></head>
@@ -513,9 +513,9 @@ VIEWER_HTML = r"""<!DOCTYPE html>
 <title>Japan Overlay AE Review</title>
 <style>
   :root {
-    --bg: #0f1115; --panel: #181b22; --panel2: #1f232c; --line: #2a2f3a;
-    --txt: #e6e9ef; --muted: #9aa3b2; --accent: #78A300; --accent2: #17494D;
-    --warn: #f59e0b; --bad: #ef4444; --ok: #22c55e; --chip: #2a2f3a;
+    --bg: #f7f8fa; --panel: #ffffff; --panel2: #f3f5f7; --line: #e3e7eb;
+    --txt: #1b2733; --muted: #68737d; --accent: #78A300; --accent2: #17494D;
+    --warn: #b26a00; --bad: #d92d20; --ok: #3f8c00; --chip: #eef1f3;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--txt);
@@ -573,7 +573,7 @@ VIEWER_HTML = r"""<!DOCTYPE html>
   .status-line { margin-top: 5px; }
   .empty, .status { color: var(--muted); padding: 40px; text-align: center; }
   .status.err { color: var(--bad); }
-  a { color: var(--accent); text-decoration: none; }
+  a { color: var(--accent2); text-decoration: none; }
   a:hover { text-decoration: underline; }
   footer { color: var(--muted); font-size: 12px; padding: 20px 24px; text-align: center; }
   .hidden { display: none !important; }
