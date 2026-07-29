@@ -242,6 +242,34 @@ class Handler(BaseHTTPRequestHandler):
             payload = self._body()
         except json.JSONDecodeError:
             return self._send(400, {"error": "bad JSON"})
+
+        # ADMIN — re-pull fresh data from Salesforce (runs refresh.py). No oppId
+        # needed; handled before the oppId guard below.
+        if path == "/api/refresh":
+            month = (payload.get("month") or "").strip()  # optional "YYYY-MM"
+            cmd = [sys.executable, os.path.join(HERE, "refresh.py")]
+            if SESSION["org"]:
+                cmd += ["--org", SESSION["org"]]
+            if month:
+                cmd += ["--month", month]
+            try:
+                out = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            except subprocess.TimeoutExpired:
+                return self._send(504, {"error": "refresh timed out after 5 min"})
+            if out.returncode != 0:
+                return self._send(502, {"error": (out.stderr or out.stdout or "refresh failed").strip()[-800:]})
+            # Read back the freshly written summary + period to report inline.
+            summary, period = {}, {}
+            try:
+                with open(os.path.join(DOCS, "data.json")) as f:
+                    data = json.load(f)
+                summary = data.get("summary", {})
+                period = data.get("period", {})
+            except (OSError, json.JSONDecodeError):
+                pass
+            return self._send(200, {"ok": True, "summary": summary, "period": period,
+                                    "log": (out.stdout or "").strip()[-800:]})
+
         opp_id = (payload.get("oppId") or "").strip()
         if not opp_id:
             return self._send(400, {"error": "oppId required"})

@@ -92,10 +92,72 @@ function hydrate(data) {
     o.value = s; o.textContent = s; segSel.appendChild(o);
   }
 
+  // Admin "Refresh data" — only when served by the local server (which can run
+  // refresh.py). Never shows on the static GitHub Pages copy.
+  if (writeApi.enabled && $("refreshBtn")) {
+    $("refreshBtn").classList.remove("hidden");
+  }
+
   $("status").classList.add("hidden");
   $("dashboard").classList.remove("hidden");
   wire();
   render();
+}
+
+// Admin: re-pull fresh data from Salesforce (local server runs refresh.py),
+// then reload data.json in place.
+async function refreshData() {
+  const btn = $("refreshBtn");
+  const msg = $("refreshMsg");
+  const ok = window.confirm(
+    "Re-pull the latest Japan overlay opps from Salesforce (" + (writeApi.org || "prod") + ")?\n\n" +
+    "This reads Salesforce (no writes) and rebuilds the worklist. Takes up to a minute.");
+  if (!ok) return;
+
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = "Refreshing…";
+  msg.className = "sub";
+  msg.textContent = "Pulling from Salesforce…";
+  try {
+    const res = await fetch("/api/refresh", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const out = await res.json();
+    if (!res.ok || !out.ok) throw new Error(out.error || ("HTTP " + res.status));
+    const s = out.summary || {};
+    const per = (out.period && out.period.label) ? " · " + out.period.label : "";
+    msg.className = "sub ok";
+    msg.textContent = "Updated: " + (s.total ?? "?") + " opps · " + (s.ok ?? 0) +
+      " OK · " + (s.missing ?? 0) + " need Mari" + per;
+    await reloadData();
+  } catch (e) {
+    msg.className = "sub err";
+    msg.textContent = "Refresh failed — " + esc(e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
+
+// Re-fetch data.json and re-render the current view without a full page reload.
+async function reloadData() {
+  const res = await fetch("data.json?_=" + Date.now(), { cache: "no-store" });
+  if (!res.ok) throw new Error("couldn’t reload data.json (HTTP " + res.status + ")");
+  const data = await res.json();
+  state.rows = data.rows || [];
+  const sm = data.summary || {};
+  $("cTotal").textContent = sm.total ?? state.rows.length;
+  $("cOk").textContent = sm.ok ?? 0;
+  $("cMissing").textContent = sm.missing ?? 0;
+  if ($("cSomeone")) $("cSomeone").textContent = sm.someoneElse ?? 0;
+  $("cPeriod").textContent = (data.period && data.period.label) || "—";
+  if ($("tabActionCount")) $("tabActionCount").textContent =
+    state.rows.filter((r) => r.bucket === "missing").length;
+  const gen = data.generatedAt ? new Date(data.generatedAt) : null;
+  $("who").textContent = gen ? "Refreshed " + gen.toLocaleString("en-US") : "";
+  refreshView();
 }
 
 // Re-render whichever tab is currently showing (filters are shared across both).
@@ -109,6 +171,7 @@ function wire() {
   $("typeFilter").addEventListener("change", (e) => { state.type = e.target.value; refreshView(); });
   $("segmentFilter").addEventListener("change", (e) => { state.segment = e.target.value; refreshView(); });
   $("csvBtn").addEventListener("click", exportCsv);
+  if ($("refreshBtn")) $("refreshBtn").addEventListener("click", refreshData);
 
   document.querySelectorAll(".card.click").forEach((card) => {
     card.addEventListener("click", () => {

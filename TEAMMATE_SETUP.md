@@ -1,150 +1,120 @@
-# Japan Overlay AE — Local Auto-Update Setup
+# Get your own "Japan Overlay AE Review & Update" running
 
-**For: a teammate who wants the "Update in Salesforce" dashboard running on their
-own laptop, writing with their OWN Salesforce login (no admin permission needed).**
+**This is the same dashboard as `http://localhost:8771/`** — it lists Japan
+Closed-Won opps that need **Mari Takiyama** tagged as AE Overlay, with a button
+that **writes the fix straight to Salesforce** (adds her to the Opportunity Team
++ a 100% Overlay split). It runs on *your own laptop* using *your own* Salesforce
+login, so **you don't need any admin permission.**
 
-This is the same tool as `http://localhost:8771/` — a dashboard that lists Japan
-Closed-Won opps needing **Mari Takiyama** tagged as AE Overlay, with a button that
-**writes the fix straight to Salesforce** (adds her to the Opportunity Team + a
-100% Overlay split). It works without any admin because it borrows *your own*
-`sf` CLI / Okta login that lives on your laptop.
-
-> **Hand this whole file to Claude Code on your laptop and say:**
-> *"Follow this guide and set up the Japan Overlay local server for me."*
-> Claude can do every step below for you.
+You don't have to understand any of the code. **Claude Code will build the whole
+thing for you** — you just paste one instruction and answer the login prompt.
 
 ---
 
-## What you need first (one-time)
+## What you need (one-time)
 
-1. **A Mac** (these steps assume macOS).
-2. **Python 3** — already on every Mac (`python3 --version`).
-3. **Salesforce CLI (`sf`)** + a login to prod with your own Zendesk SSO.
-4. **Access to Salesforce prod** with **API Enabled** (everyone on the team has
-   this — it's what lets the write work). You do **not** need "Customize
-   Application" or any admin permission.
+- **A Mac.**
+- **Claude Code** installed and open in a Terminal.
+- **A Salesforce prod login** (your normal Zendesk Okta SSO). Everyone on the
+  team already has the access this needs (API Enabled) — you do **not** need
+  "Customize Application" or any admin rights.
 
-No `pip install` is needed — the server uses only the Python standard library.
-
----
-
-## Step 1 — Install the Salesforce CLI (skip if you have `sf`)
-
-```bash
-# Check first:
-sf --version
-# If "command not found", install via Homebrew:
-brew install sf
-# (No Homebrew? Get it at https://brew.sh, or install sf from
-#  https://developer.salesforce.com/tools/salesforcecli )
-```
-
-## Step 2 — Log in to Salesforce prod (your own SSO)
-
-```bash
-sf org login web --alias prod --instance-url https://zendesk.my.salesforce.com
-```
-
-A browser opens → log in with your normal **Zendesk Okta SSO**. That's it —
-this saves a token on YOUR laptop that the server will use to write as YOU.
-Confirm it worked:
-
-```bash
-sf org display --target-org prod
-```
-
-## Step 3 — Get the code from GitHub (public repo)
-
-```bash
-cd ~/Desktop
-git clone https://github.com/justinemendez-svg/Japan-Overlay-AE.git
-cd Japan-Overlay-AE
-```
-
-You now have `serve_local.py`, `refresh.py`, and the `docs/` dashboard.
-
-## Step 4 — Pull fresh data (optional but recommended)
-
-The repo ships with a `docs/data.json`, but to get the latest opps, pull from
-Salesforce yourself:
-
-```bash
-python3 refresh.py --org prod
-```
-
-This reads Salesforce (read-only) and rebuilds `docs/data.json` — the list of
-opps and who's missing Mari. Re-run it anytime for fresh data.
-
-## Step 5 — Start the local write server
-
-```bash
-python3 serve_local.py --org prod
-```
-
-You'll see it resolve your login, then:
-
-```
-Open  →  http://localhost:8771/
-```
-
-Open that in your browser. Nothing is written until you click **and** confirm.
+That's it. No coding, no `pip install`.
 
 ---
 
-## How to use it
+## Step 1 — Open Claude Code, then paste this
 
-1. Open **http://localhost:8771/**
-2. Click the **"Overlay AE to update"** tab — the opps needing Mari.
-3. For one opp: click **"Update in Salesforce →"** → a preview pops up showing
-   exactly what it will add → click **OK** to write, **Cancel** to stop.
-4. For the whole filtered list: **"Update all"** at the top (use the
-   search/type/segment filters first to scope a smaller batch).
-5. On success the opp shows *"Done — Mari is now in both"* and drops off the list.
+Open **Claude Code** in a Terminal window and paste the block below **exactly as
+is**, then hit Enter. Claude will do every step itself — install the Salesforce
+CLI if needed, log you in, download the code, and start the dashboard.
 
-Every write is logged to `writes.log.jsonl` in the folder (opp, what was created,
-timestamp, and that it was you).
+> 📋 **COPY EVERYTHING BETWEEN THE LINES AND PASTE IT INTO CLAUDE:**
 
----
+```text
+Please set up the "Japan Overlay AE Review & Update" local dashboard on my Mac.
+It's a tool that writes an AE Overlay tag to Salesforce using my own sf CLI login.
+Do all of these steps for me, and stop to tell me if any step needs my input:
 
-## Safety notes
+1. Check if the Salesforce CLI is installed by running: sf --version
+   If it is not installed, install it with Homebrew: brew install sf
+   (If Homebrew isn't installed either, install it first from https://brew.sh)
 
-- **You write as yourself.** It uses your own `sf`/Okta session — same as if you
-  edited the opp by hand in Salesforce. Fully attributed to you.
-- **Idempotent.** If an opp already has the team member or the split, it only
-  adds what's missing. If both exist, it writes nothing.
-- **Preview + confirm** before every write. "Update all" warns with the count.
-- **"Update all" writes to production** for every opp in the current view —
-  filter first and eyeball the list before running the whole thing.
+2. Log me in to Salesforce production with my own SSO by running:
+   sf org login web --alias prod --instance-url https://zendesk.my.salesforce.com
+   A browser will open — tell me to log in with my Zendesk Okta SSO, and wait
+   for me to finish. Then confirm it worked with: sf org display --target-org prod
 
----
+3. Download the code from this public GitHub repo into my Desktop:
+   cd ~/Desktop && git clone https://github.com/justinemendez-svg/Japan-Overlay-AE.git
+   Then cd into the Japan-Overlay-AE folder.
 
-## Quick command recap (copy-paste)
+4. Start the local dashboard server by running:
+   python3 serve_local.py --org prod
+   This uses only Python's standard library, so no pip install is needed.
+   Wait ~20 seconds for it to print "Open → http://localhost:8771/".
 
-```bash
-# one-time
-brew install sf
-sf org login web --alias prod --instance-url https://zendesk.my.salesforce.com
-cd ~/Desktop && git clone https://github.com/justinemendez-svg/Japan-Overlay-AE.git
-cd Japan-Overlay-AE
+5. Tell me to open http://localhost:8771/ in my browser, and remind me to KEEP
+   THE TERMINAL WINDOW OPEN — the dashboard only works while this server is
+   running. If I close it, just run "python3 serve_local.py --org prod" again.
 
-# each session
-python3 refresh.py --org prod       # get fresh data (optional)
-python3 serve_local.py --org prod   # start server → open http://localhost:8771/
+Important safety notes to tell me:
+- Nothing is written to Salesforce until I click a button AND confirm a preview.
+- It writes as ME (my own login), exactly as if I edited the opp by hand.
+- If an opp already has the tag, it skips it (it never duplicates).
 ```
 
-To stop the server: press **Ctrl-C** in the terminal, or just close it.
+> ⬆️ **THAT'S THE WHOLE SETUP.** Claude runs it start to finish. The only thing
+> it needs from you is to log in when the browser pops open in step 2.
 
 ---
 
-## Troubleshooting
+## Step 2 — Use the dashboard
 
-| Problem | Fix |
+Once Claude tells you it's running, open **http://localhost:8771/** in your
+browser.
+
+1. Click the **"Overlay AE to update"** tab — these are the opps needing Mari.
+2. **One opp:** click **"Update in Salesforce →"** → a preview shows exactly what
+   it will add → click **OK** to write, **Cancel** to stop.
+3. **The whole filtered list:** click **"Update all"** at the top. (Use the
+   search / type / segment filters first to scope a smaller batch.)
+4. On success the opp shows *"Done — Mari is now in both"* and drops off the list.
+
+### The "Refresh data" button — get the latest opps
+
+Top-right of the dashboard (next to **Export CSV**) there's a **Refresh data**
+button. Click it → confirm → it re-pulls the latest Japan Closed-Won opps
+straight from Salesforce and rebuilds the list **right in the page** — no
+terminal needed. It only reads Salesforce (no writes) and takes up to a minute.
+
+---
+
+## If something's not working, tell Claude
+
+You don't need to fix anything yourself — just paste the problem to Claude. Common ones:
+
+| What you see | Just say to Claude |
 |---|---|
-| `sf: command not found` | Install it (Step 1). |
-| `No active user named 'Mari Takiyama'` | Your `sf` login may point to the wrong org — re-run Step 2 with `--instance-url https://zendesk.my.salesforce.com`. |
-| Button just opens Salesforce (doesn't auto-write) | You opened the dashboard as a plain file or on GitHub Pages. It must be opened via **http://localhost:8771/** (the running server). |
-| `Port 8771 in use` | Run `python3 serve_local.py --org prod --port 8781` and open that port instead. |
-| Write fails with a permissions error | You may lack API access on this opp — check with Justine; it's not an admin/Connected-App issue. |
+| **The page is blank / won't load** at localhost:8771 | *"The dashboard isn't loading — is the server still running? Please start it again."* (This is almost always it: the server stopped because the terminal was closed.) |
+| **The button just opens Salesforce** instead of auto-writing | *"The Update button opens Salesforce instead of writing — did I open the page through the local server?"* (You must use `http://localhost:8771/`, not a file or GitHub Pages.) |
+| **`Port 8771 in use`** | *"Port 8771 is busy — please start the server on a different port and tell me the new address."* |
+| **A write fails with a permissions error** | Screenshot it and ping **Justine** — it's an access question, not an admin/Connected-App issue. |
+| **`No active user named 'Mari Takiyama'`** | *"It can't find Mari — please re-run the Salesforce login pointing at https://zendesk.my.salesforce.com."* |
+
+---
+
+## Good to know
+
+- **You write as yourself.** It borrows your own `sf`/Okta session on your laptop
+  — fully attributed to you, same as editing the opp by hand.
+- **It never duplicates.** Idempotent: if the team member or split already
+  exists, it only adds what's missing; if both exist, it writes nothing.
+- **Preview + confirm before every write.** "Update all" warns you with the count
+  first — filter and eyeball the list before running the whole thing.
+- **Every write is logged** to `writes.log.jsonl` in the folder (which opp, what
+  was created, when, and that it was you).
+- **Keep the terminal open** while you work — closing it stops the dashboard.
 
 ---
 

@@ -108,6 +108,9 @@
     border-radius: 12px; box-shadow: inset 3px 0 0 var(--warn); }
   .bulk-bar .bulk-info { font-weight: 650; }
   .bulk-bar .write-msg { margin-top: 0; }
+  #refreshMsg.ok { color: var(--ok); }
+  #refreshMsg.err { color: var(--bad); }
+  button.ghost:disabled { opacity: .5; cursor: default; }
 </style>
 </head>
 <body>
@@ -116,7 +119,9 @@
     <h1>Japan Overlay AE Review &amp; Update</h1>
   </div>
   <div class="spacer"></div>
+  <span id="refreshMsg" class="sub"></span>
   <span id="who" class="sub"></span>
+  <button class="ghost hidden" id="refreshBtn" title="Re-pull the latest opps from Salesforce (runs refresh.py)">Refresh data</button>
   <button class="ghost" id="csvBtn">Export CSV</button>
 </header>
 
