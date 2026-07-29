@@ -17,7 +17,12 @@ Flow:
      refresh.analyze) so the view always reflects the current rule — viewers
      need no login and never upload.
 
-This is READ-ONLY: it detects and reports. No Salesforce writes are made.
+Reporting is READ-ONLY. Optionally, the "Update in Salesforce" / "Update all"
+buttons can WRITE the fix (add Mari to the team + Overlay split) — but only when
+a Connected App is configured (SF_CLIENT_ID + SF_CLIENT_SECRET env vars). Each
+user logs in with their own Salesforce account and writes as themselves; no
+shared credentials. With those env vars unset the buttons are plain deep links
+and nothing can write. See the Auto-write section in README.md.
 
 Single uploadable file → table:
   Japan_Overlay_AE_Automation.csv → japan_overlay   (one row per opportunity)
@@ -27,16 +32,46 @@ from __future__ import annotations
 
 import html as html_module
 import io
+import json
 import os
+import secrets
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 import pandas as pd
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, redirect, request, session
 from sqlalchemy import create_engine, inspect, text
 
 app = Flask(__name__)
+# Signs the session cookie that holds each user's Salesforce OAuth token. Set
+# FLASK_SECRET_KEY in the App Foundry env for stable sessions across restarts;
+# a per-process random key is fine otherwise (users just re-login after a redeploy).
+app.secret_key = os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(32)
 
 TABLE = "japan_overlay"
+
+# ---- Salesforce write config (OAuth "Log in with Salesforce") ---------------
+# The auto-write path stays DORMANT until a Salesforce admin creates a Connected
+# App and these two secrets are set in the App Foundry environment. Until then
+# the dashboard + upload + deep-link button all work exactly as before.
+#   SF_CLIENT_ID / SF_CLIENT_SECRET → from the Connected App (admin gives these)
+#   SF_LOGIN_URL   → the org's My Domain (Zendesk SSO login happens here)
+#   SF_REDIRECT_URI→ optional override; else derived from the request as <app>/oauth/callback
+SF_CLIENT_ID = os.environ.get("SF_CLIENT_ID", "")
+SF_CLIENT_SECRET = os.environ.get("SF_CLIENT_SECRET", "")
+SF_LOGIN_URL = os.environ.get("SF_LOGIN_URL", "https://zendesk.my.salesforce.com").rstrip("/")
+SF_REDIRECT_URI = os.environ.get("SF_REDIRECT_URI", "").strip()
+SF_API_VERSION = "v60.0"
+
+WRITE_CONFIGURED = bool(SF_CLIENT_ID and SF_CLIENT_SECRET)
+
+# The overlay rule — what a correct tag looks like (mirrors serve_local.py).
+OVERLAY_TEAM_ROLE = "AE Overlay"          # OpportunityTeamMember.TeamMemberRole
+OVERLAY_TEAM_ACCESS = "Read"              # OpportunityAccessLevel picklist API value
+OVERLAY_SPLIT_TYPE_LABEL = "Overlay"      # SplitType.MasterLabel
+OVERLAY_SPLIT_PERCENT = 100
 # The file dropped on /admin (the automated pull names it this). It maps to the
 # TABLE above — we match on this exact name rather than the table name so the
 # Postgres identifier stays clean (no dashes) regardless of the file's name.
@@ -328,6 +363,295 @@ def build_payload(df: pd.DataFrame) -> dict:
     }
 
 
+# ---- Salesforce OAuth + write (each user writes as themselves) --------------
+# Model: the person who clicks "Update" logs in with THEIR OWN Salesforce
+# account (Okta SSO). The app never stores a shared password — it holds only
+# that user's short-lived token in their signed session cookie, and writes as
+# them. Audited to the real person by Salesforce itself.
+
+def _redirect_uri() -> str:
+    """The OAuth callback URL. Must EXACTLY match a Callback URL configured on
+    the Connected App. Uses SF_REDIRECT_URI if set, else derives it from the
+    incoming request (handles the App Foundry https host automatically)."""
+    if SF_REDIRECT_URI:
+        return SF_REDIRECT_URI
+    # url_root already includes scheme + host + trailing slash.
+    root = request.url_root
+    # App Foundry terminates TLS at the proxy; honor the forwarded scheme.
+    proto = request.headers.get("X-Forwarded-Proto")
+    if proto:
+        root = root.replace("http://", proto + "://", 1)
+    return root.rstrip("/") + "/oauth/callback"
+
+
+def _sf_session():
+    """The logged-in user's Salesforce token + instance, or None."""
+    tok = session.get("sf")
+    if tok and tok.get("access_token") and tok.get("instance_url"):
+        return tok
+    return None
+
+
+def _sf_rest(method, path, body=None):
+    """Call the Salesforce REST API as the logged-in user. Returns (status, json).
+    Raises _NeedsLogin if there's no session / the token is rejected."""
+    tok = _sf_session()
+    if not tok:
+        raise _NeedsLogin()
+    url = tok["instance_url"].rstrip("/") + path
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header("Authorization", "Bearer " + tok["access_token"])
+    req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req) as resp:
+            raw = resp.read().decode()
+            return resp.status, (json.loads(raw) if raw else {})
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode()
+        if e.code == 401:              # token expired/invalid → force re-login
+            session.pop("sf", None)
+            raise _NeedsLogin()
+        try:
+            return e.code, json.loads(raw)
+        except json.JSONDecodeError:
+            return e.code, {"message": raw}
+
+
+def _sf_query(soql):
+    status, res = _sf_rest(
+        "GET", f"/services/data/{SF_API_VERSION}/query/?q=" + urllib.parse.quote(soql))
+    if status != 200:
+        raise RuntimeError((res or {}).get("message") or f"query failed ({status})")
+    return res.get("records", [])
+
+
+class _NeedsLogin(Exception):
+    """Raised when a Salesforce write needs the user to (re)authenticate."""
+
+
+# Resolve Mari's UserId + the Overlay SplitTypeId ONCE per user session (IDs are
+# org-specific; read live, never hardcoded).
+def _resolve_refs():
+    refs = session.get("sf_refs")
+    if refs and refs.get("personId") and refs.get("splitTypeId"):
+        return refs
+    person = _sf_query(
+        "SELECT Id FROM User WHERE Name = '" + OVERLAY_PERSON.replace("'", "\\'") +
+        "' AND IsActive = true LIMIT 1")
+    split = _sf_query(
+        "SELECT SplitTypeId FROM OpportunitySplit "
+        f"WHERE SplitType.MasterLabel = '{OVERLAY_SPLIT_TYPE_LABEL}' LIMIT 1")
+    refs = {
+        "personId": person[0]["Id"] if person else None,
+        "splitTypeId": split[0]["SplitTypeId"] if split else None,
+    }
+    session["sf_refs"] = refs
+    return refs
+
+
+def _current_state(opp_id, person_id):
+    team = _sf_query(
+        "SELECT Id FROM OpportunityTeamMember "
+        f"WHERE OpportunityId = '{opp_id}' AND TeamMemberRole = '{OVERLAY_TEAM_ROLE}' "
+        f"AND UserId = '{person_id}'")
+    split = _sf_query(
+        "SELECT Id FROM OpportunitySplit "
+        f"WHERE OpportunityId = '{opp_id}' "
+        f"AND SplitType.MasterLabel = '{OVERLAY_SPLIT_TYPE_LABEL}' "
+        f"AND SplitOwnerId = '{person_id}'")
+    return {"mariOnTeam": bool(team), "mariOnSplit": bool(split)}
+
+
+def _plan_for(opp_id):
+    refs = _resolve_refs()
+    if not refs["personId"]:
+        raise RuntimeError(f"No active user named '{OVERLAY_PERSON}' in this org.")
+    have = _current_state(opp_id, refs["personId"])
+    steps = []
+    if not have["mariOnTeam"]:
+        steps.append({
+            "object": "OpportunityTeamMember",
+            "label": f"Add {OVERLAY_PERSON} to the Opportunity Team as {OVERLAY_TEAM_ROLE} (Read access)",
+            "values": {"OpportunityId": opp_id, "UserId": refs["personId"],
+                       "TeamMemberRole": OVERLAY_TEAM_ROLE,
+                       "OpportunityAccessLevel": OVERLAY_TEAM_ACCESS},
+        })
+    if not have["mariOnSplit"]:
+        if not refs["splitTypeId"]:
+            steps.append({"object": "OpportunitySplit",
+                          "blocked": "No Overlay SplitTypeId found in this org — cannot create the split."})
+        else:
+            steps.append({
+                "object": "OpportunitySplit",
+                "label": f"Add a {OVERLAY_SPLIT_TYPE_LABEL} split for {OVERLAY_PERSON} at {OVERLAY_SPLIT_PERCENT}%",
+                "values": {"OpportunityId": opp_id, "SplitOwnerId": refs["personId"],
+                           "SplitTypeId": refs["splitTypeId"],
+                           "SplitPercentage": OVERLAY_SPLIT_PERCENT},
+            })
+    return have, steps
+
+
+def _do_writes(steps):
+    results = []
+    for step in steps:
+        if step.get("blocked"):
+            results.append({"object": step["object"], "ok": False, "error": step["blocked"]})
+            continue
+        status, resp = _sf_rest(
+            "POST", f"/services/data/{SF_API_VERSION}/sobjects/{step['object']}/", step["values"])
+        ok = status in (200, 201) and resp.get("success")
+        err = None
+        if not ok:
+            err = resp.get("message") or (
+                "; ".join(e.get("message", "") for e in resp) if isinstance(resp, list) else str(resp))
+        results.append({"object": step["object"], "ok": ok,
+                        "id": resp.get("id") if ok else None, "error": err})
+    return results
+
+
+@app.route("/oauth/login")
+def oauth_login():
+    """Kick off "Log in with Salesforce". Remembers where to return afterward."""
+    if not WRITE_CONFIGURED:
+        return jsonify({"error": "Salesforce write is not configured on this app yet."}), 503
+    state = secrets.token_urlsafe(24)
+    session["oauth_state"] = state
+    session["oauth_next"] = request.args.get("next", "/")
+    params = {
+        "response_type": "code",
+        "client_id": SF_CLIENT_ID,
+        "redirect_uri": _redirect_uri(),
+        "scope": "api refresh_token",
+        "state": state,
+    }
+    return redirect(SF_LOGIN_URL + "/services/oauth2/authorize?" + urllib.parse.urlencode(params))
+
+
+@app.route("/oauth/callback")
+def oauth_callback():
+    """Salesforce redirects back here with a code; exchange it for a token."""
+    if request.args.get("error"):
+        return _oauth_close(f"Salesforce login failed: {request.args.get('error_description', request.args['error'])}")
+    if not request.args.get("state") or request.args.get("state") != session.get("oauth_state"):
+        return _oauth_close("Login state mismatch — please try again.")
+    code = request.args.get("code")
+    if not code:
+        return _oauth_close("No authorization code returned.")
+    body = urllib.parse.urlencode({
+        "grant_type": "authorization_code",
+        "code": code,
+        "client_id": SF_CLIENT_ID,
+        "client_secret": SF_CLIENT_SECRET,
+        "redirect_uri": _redirect_uri(),
+    }).encode()
+    req = urllib.request.Request(SF_LOGIN_URL + "/services/oauth2/token", data=body, method="POST")
+    req.add_header("Content-Type", "application/x-www-form-urlencoded")
+    try:
+        with urllib.request.urlopen(req) as resp:
+            tok = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        return _oauth_close("Token exchange failed: " + html_module.escape(e.read().decode()[:300]))
+    session["sf"] = {"access_token": tok.get("access_token"),
+                     "instance_url": tok.get("instance_url"),
+                     "id": tok.get("id")}
+    session.pop("sf_refs", None)   # re-resolve refs against this org/session
+    return _oauth_close(None)      # success → close popup, tell opener to retry
+
+
+def _oauth_close(err):
+    """Tiny HTML that closes the OAuth popup and notifies the opener window."""
+    payload = json.dumps({"sfAuth": True, "error": err})
+    return (f"<!doctype html><meta charset=utf-8><body style='font-family:-apple-system,"
+            f"sans-serif;padding:40px;text-align:center;color:#1b2733'>"
+            f"<p>{'You can close this window.' if not err else html_module.escape(err)}</p>"
+            f"<script>try{{window.opener&&window.opener.postMessage({payload},'*');}}catch(e){{}}"
+            f"window.close();</script></body>")
+
+
+@app.route("/api/health")
+def api_health():
+    """Tells the dashboard whether auto-write is available and if the user is
+    logged in. writeConfigured=False → button stays a deep link."""
+    return jsonify({
+        "writeConfigured": WRITE_CONFIGURED,
+        "loggedIn": bool(_sf_session()),
+        "person": OVERLAY_PERSON,
+    })
+
+
+@app.route("/api/preview", methods=["POST"])
+def api_preview():
+    if not WRITE_CONFIGURED:
+        return jsonify({"error": "not configured"}), 503
+    opp_id = (request.get_json(silent=True) or {}).get("oppId", "").strip()
+    if not opp_id:
+        return jsonify({"error": "oppId required"}), 400
+    try:
+        have, steps = _plan_for(opp_id)
+    except _NeedsLogin:
+        return jsonify({"needsLogin": True}), 401
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 502
+    return jsonify({"oppId": opp_id, "have": have, "steps": steps,
+                    "nothingToDo": len(steps) == 0})
+
+
+@app.route("/api/write", methods=["POST"])
+def api_write():
+    if not WRITE_CONFIGURED:
+        return jsonify({"error": "not configured"}), 503
+    payload = request.get_json(silent=True) or {}
+    if payload.get("confirm") != "CONFIRM":
+        return jsonify({"error": "confirmation required"}), 400
+    opp_id = (payload.get("oppId") or "").strip()
+    if not opp_id:
+        return jsonify({"error": "oppId required"}), 400
+    try:
+        have, steps = _plan_for(opp_id)
+        results = _do_writes(steps)
+        refs = session.get("sf_refs") or {}
+        after = _current_state(opp_id, refs.get("personId"))
+    except _NeedsLogin:
+        return jsonify({"needsLogin": True}), 401
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 502
+    all_ok = all(r["ok"] for r in results) if results else True
+    return jsonify({"oppId": opp_id, "results": results, "after": after,
+                    "done": after["mariOnTeam"] and after["mariOnSplit"]}), (200 if all_ok else 207)
+
+
+@app.route("/api/write-all", methods=["POST"])
+def api_write_all():
+    if not WRITE_CONFIGURED:
+        return jsonify({"error": "not configured"}), 503
+    payload = request.get_json(silent=True) or {}
+    if payload.get("confirm") != "CONFIRM":
+        return jsonify({"error": "confirmation required"}), 400
+    ids = payload.get("oppIds") or []
+    if not isinstance(ids, list) or not ids:
+        return jsonify({"error": "oppIds (non-empty list) required"}), 400
+    items = []
+    try:
+        for oid in ids:
+            oid = str(oid).strip()
+            if not oid:
+                continue
+            try:
+                have, steps = _plan_for(oid)
+                results = _do_writes(steps)
+                refs = session.get("sf_refs") or {}
+                after = _current_state(oid, refs.get("personId"))
+                items.append({"oppId": oid, "results": results, "after": after,
+                              "done": after["mariOnTeam"] and after["mariOnSplit"]})
+            except RuntimeError as e:
+                items.append({"oppId": oid, "error": str(e), "results": []})
+    except _NeedsLogin:
+        return jsonify({"needsLogin": True}), 401
+    done = sum(1 for it in items if it.get("done"))
+    return jsonify({"count": len(items), "done": done, "items": items})
+
+
 # ---- routes -----------------------------------------------------------------
 
 @app.route("/data.json")
@@ -609,6 +933,17 @@ VIEWER_HTML = r"""<!DOCTYPE html>
   table.kv td.k2 { color: var(--muted); font-weight: 600; white-space: nowrap; }
   table.kv td.v2 { font-weight: 650; }
   .action-body .also { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .write-msg { font-size: 12px; margin-top: 6px; font-weight: 600; }
+  .write-msg:empty { display: none; }
+  .write-msg.ok { color: var(--ok); }
+  .write-msg.err { color: var(--bad); }
+  .btn-sf:disabled { opacity: .5; cursor: default; }
+  .action-head .head-main .write-msg { margin-top: 6px; }
+  .bulk-bar { display: flex; align-items: center; gap: 14px; margin-bottom: 16px;
+    padding: 12px 16px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; box-shadow: inset 3px 0 0 var(--warn); }
+  .bulk-bar .bulk-info { font-weight: 650; }
+  .bulk-bar .write-msg { margin-top: 0; }
 </style>
 </head>
 <body>
@@ -670,6 +1005,11 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     </div>
 
     <div id="panelAction" class="hidden">
+      <div id="bulkBar" class="bulk-bar hidden">
+        <div class="bulk-info"><span id="bulkCount">0</span> opps in this view need Mari</div>
+        <button class="btn-sf" id="updateAllBtn">Update all →</button>
+        <span id="bulkMsg" class="write-msg"></span>
+      </div>
       <div class="action-list" id="actionList"></div>
       <div id="actionEmpty" class="empty hidden">Nothing to update — every in-scope opp already has Mari tagged as AE Overlay in both places. ✅</div>
     </div>
@@ -687,6 +1027,21 @@ VIEWER_HTML = r"""<!DOCTYPE html>
   let STATE = { rows: [], period: null, summary: null, sfBaseUrl: "", overlayPerson: "Mari Takiyama" };
   let sortKey = "closeDate", sortDir = -1;
   let bucketFilter = "", typeFilter = "", segmentFilter = "";
+  // Auto-write availability (from /api/health). When writeConfigured is true the
+  // "Update" button writes to Salesforce (login → preview → confirm → write);
+  // otherwise it stays a deep link, exactly like before.
+  const writeApi = { configured: false, loggedIn: false, person: "Mari Takiyama" };
+
+  async function detectWriteApi() {
+    try {
+      const res = await fetch("api/health", { cache: "no-store" });
+      if (!res.ok) return;
+      const h = await res.json();
+      writeApi.configured = !!h.writeConfigured;
+      writeApi.loggedIn = !!h.loggedIn;
+      if (h.person) writeApi.person = h.person;
+    } catch (e) { /* deep-link mode */ }
+  }
 
   const fmtMoney = (n) => n == null ? "—" : n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
   const fmtDate = (s) => (s ? new Date(s + "T00:00:00").toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "—");
@@ -809,26 +1164,157 @@ VIEWER_HTML = r"""<!DOCTYPE html>
         '<tr><td class="k2">Split Type</td><td class="v2">Overlay</td></tr>' +
         "</tbody></table>" +
         (needSplit ? "" : '<div class="also">Overlay split already set — no split change needed.</div>') + "</div>";
-      const teamUrl = STATE.sfBaseUrl && r.id
-        ? esc(STATE.sfBaseUrl) + "/lightning/r/Opportunity/" + esc(r.id) + "/related/OpportunityTeamMembers/view"
-        : null;
-      const updateBtn = teamUrl
-        ? '<a class="btn-sf" href="' + teamUrl + '" target="_blank" rel="noopener" ' +
-          'title="Opens this opp’s Opportunity Team in Salesforce so you can add Mari">Update in Salesforce &rarr;</a>'
-        : "";
-      return '<div class="action-card">' +
+      // Two button modes: auto-write (write configured) vs deep link.
+      let updateBtn = "";
+      if (r.id && writeApi.configured) {
+        updateBtn = '<button class="btn-sf" data-write="' + esc(r.id) + '" ' +
+          'title="Preview, then write ' + esc(person) + ' to this opp in Salesforce">Update in Salesforce &rarr;</button>';
+      } else if (STATE.sfBaseUrl && r.id) {
+        const teamUrl = esc(STATE.sfBaseUrl) + "/lightning/r/Opportunity/" + esc(r.id) + "/related/OpportunityTeamMembers/view";
+        updateBtn = '<a class="btn-sf" href="' + teamUrl + '" target="_blank" rel="noopener" ' +
+          'title="Opens this opp’s Opportunity Team in Salesforce so you can add Mari">Update in Salesforce &rarr;</a>';
+      }
+      return '<div class="action-card" data-card="' + esc(r.id || "") + '">' +
         '<div class="action-head"><div class="head-main"><div class="opp-title">' + link + "</div>" +
           '<div class="opp-id">' + esc(r.id || "") + "</div>" +
           '<div class="meta">' + esc(r.account || "—") + " · " + esc(r.owner || "—") + " · " + esc(r.segment || "—") + " · " + esc(r.type || "—") + "</div>" +
-          '<div class="reason">' + esc(r.reason) + "</div></div>" + updateBtn + "</div>" +
+          '<div class="reason">' + esc(r.reason) + "</div>" +
+          '<div class="write-msg" data-msg="' + esc(r.id || "") + '"></div></div>' + updateBtn + "</div>" +
         '<div class="action-body">' + teamStep + splitStep + "</div></div>";
     }).join("");
     $("actionEmpty").classList.toggle("hidden", rows.length !== 0);
     $("actionList").classList.toggle("hidden", rows.length === 0);
+
+    // Wire the auto-write buttons (only present when write is configured).
+    $("actionList").querySelectorAll("button[data-write]").forEach((btn) => {
+      btn.addEventListener("click", () => startWrite(btn.dataset.write, btn));
+    });
+
+    // "Update all" bar — only in write mode, only when the view has opps.
+    const bar = $("bulkBar");
+    if (bar) {
+      const showBar = writeApi.configured && rows.length > 0;
+      bar.classList.toggle("hidden", !showBar);
+      if (showBar) {
+        $("bulkCount").textContent = rows.length;
+        const allBtn = $("updateAllBtn");
+        allBtn.disabled = false;
+        allBtn.textContent = "Update all " + rows.length + " →";
+        $("bulkMsg").textContent = "";
+        allBtn.onclick = () => updateAll(rows.map((r) => r.id).filter(Boolean));
+      }
+    }
+  }
+
+  // --- Auto-write flow: login (if needed) → preview → confirm → write --------
+  function setMsg(oppId, html, cls) {
+    const el = document.querySelector('[data-msg="' + (window.CSS && CSS.escape ? CSS.escape(oppId) : oppId) + '"]');
+    if (el) { el.className = "write-msg" + (cls ? " " + cls : ""); el.innerHTML = html; }
+  }
+
+  // Open the Salesforce login popup and resolve once it reports back.
+  function ensureLogin() {
+    return new Promise((resolve) => {
+      if (writeApi.loggedIn) return resolve(true);
+      const w = window.open("oauth/login?next=/", "sfLogin", "width=620,height=720");
+      function onMsg(ev) {
+        if (!ev.data || !ev.data.sfAuth) return;
+        window.removeEventListener("message", onMsg);
+        if (ev.data.error) { resolve(false); return; }
+        writeApi.loggedIn = true;
+        resolve(true);
+      }
+      window.addEventListener("message", onMsg);
+      // Fallback: if the popup is closed manually, stop waiting.
+      const timer = setInterval(() => {
+        if (w && w.closed) { clearInterval(timer); window.removeEventListener("message", onMsg); resolve(writeApi.loggedIn); }
+      }, 700);
+    });
+  }
+
+  async function apiPost(path, body) {
+    const res = await fetch(path, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    let data = {};
+    try { data = await res.json(); } catch (e) {}
+    return { res, data };
+  }
+
+  async function startWrite(oppId, btn) {
+    btn.disabled = true;
+    setMsg(oppId, "Checking Salesforce…", "");
+    if (!writeApi.loggedIn) {
+      setMsg(oppId, "Opening Salesforce login…", "");
+      const ok = await ensureLogin();
+      if (!ok) { setMsg(oppId, "Login needed to write. Cancelled.", "err"); btn.disabled = false; return; }
+    }
+    let { res, data } = await apiPost("api/preview", { oppId });
+    if (res.status === 401 && data.needsLogin) {
+      const ok = await ensureLogin();
+      if (!ok) { setMsg(oppId, "Login needed to write. Cancelled.", "err"); btn.disabled = false; return; }
+      ({ res, data } = await apiPost("api/preview", { oppId }));
+    }
+    if (!res.ok) { setMsg(oppId, "Couldn’t reach Salesforce — " + esc(data.error || ("HTTP " + res.status)), "err"); btn.disabled = false; return; }
+    if (data.nothingToDo) { setMsg(oppId, "Already tagged in both places — nothing to write.", "ok"); btn.disabled = false; return; }
+
+    const lines = (data.steps || []).map((s) => s.blocked ? "⚠️ " + s.blocked : "• " + s.label);
+    if (!window.confirm("This will write to Salesforce:\n\n" + lines.join("\n") + "\n\nProceed?")) {
+      setMsg(oppId, "Cancelled — nothing was written.", ""); btn.disabled = false; return;
+    }
+    setMsg(oppId, "Writing to Salesforce…", "");
+    ({ res, data } = await apiPost("api/write", { oppId, confirm: "CONFIRM" }));
+    if (res.status === 401 && data.needsLogin) { setMsg(oppId, "Session expired — click Update again.", "err"); writeApi.loggedIn = false; btn.disabled = false; return; }
+    if (!res.ok && !data.results) { setMsg(oppId, "Write failed — " + esc(data.error || ("HTTP " + res.status)), "err"); btn.disabled = false; return; }
+    const parts = (data.results || []).map((r) => (r.ok ? "✓ " : "✗ ") + r.object + (r.ok ? " created" : " failed: " + esc(r.error || "")));
+    if (data.done) {
+      setMsg(oppId, "Done — " + person(oppId) + " is now in both. " + parts.join(" · "), "ok");
+      markDone(oppId);
+    } else {
+      setMsg(oppId, parts.join(" · ") || "No changes made.", "err"); btn.disabled = false;
+    }
+  }
+
+  function person() { return STATE.overlayPerson || "Mari Takiyama"; }
+
+  function markDone(oppId) {
+    const row = STATE.rows.find((x) => x.id === oppId);
+    if (row) { row.mariOnTeam = true; row.mariOnSplit = true; row.bucket = "ok"; }
+    const card = document.querySelector('[data-card="' + (window.CSS && CSS.escape ? CSS.escape(oppId) : oppId) + '"]');
+    if (card) card.style.opacity = ".55";
+    if ($("tabActionCount")) $("tabActionCount").textContent = STATE.rows.filter((r) => r.bucket === "missing").length;
+  }
+
+  async function updateAll(oppIds) {
+    const allBtn = $("updateAllBtn"), msg = $("bulkMsg");
+    if (!oppIds.length) return;
+    if (!writeApi.loggedIn) {
+      msg.className = "write-msg"; msg.textContent = "Opening Salesforce login…";
+      const ok = await ensureLogin();
+      if (!ok) { msg.className = "write-msg err"; msg.textContent = "Login needed to write. Cancelled."; return; }
+    }
+    if (!window.confirm("This will write to Salesforce for " + oppIds.length +
+        " opportunit" + (oppIds.length === 1 ? "y" : "ies") + ".\n\nEach gets " + person() +
+        " added as AE Overlay (team, Read access) and a 100% Overlay split — skipping whatever’s already there.\n\nProceed?")) {
+      msg.className = "write-msg"; msg.textContent = "Cancelled — nothing was written."; return;
+    }
+    allBtn.disabled = true;
+    msg.className = "write-msg"; msg.textContent = "Writing " + oppIds.length + " opps… this can take a minute.";
+    let { res, data } = await apiPost("api/write-all", { oppIds, confirm: "CONFIRM" });
+    if (res.status === 401 && data.needsLogin) { msg.className = "write-msg err"; msg.textContent = "Session expired — click Update all again."; writeApi.loggedIn = false; allBtn.disabled = false; return; }
+    if (!res.ok && !data.items) { msg.className = "write-msg err"; msg.textContent = "Bulk write failed — " + esc(data.error || ("HTTP " + res.status)); allBtn.disabled = false; return; }
+    let failed = 0;
+    for (const item of data.items || []) { if (item.done) markDone(item.oppId); else failed++; }
+    msg.className = "write-msg " + (failed ? "err" : "ok");
+    msg.textContent = "Done — " + (data.done || 0) + " of " + data.count + " updated" +
+      (failed ? " · " + failed + " had errors" : "") + ".";
+    renderAction();
   }
 
   async function load() {
     try {
+      await detectWriteApi();
       const res = await fetch("data.json?t=" + Date.now());
       if (!res.ok) throw new Error("no data");
       const data = await res.json();

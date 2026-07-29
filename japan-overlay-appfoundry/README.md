@@ -23,7 +23,12 @@ Each opp is classified:
 | **Needs Mari** | Mari is missing from the team, the split, or both (the reason says which). |
 | **Someone else** | A **non-Mari** user holds the AE Overlay team role — a governance exception to escalate. |
 
-This is **read-only**: it detects and reports. No Salesforce writes are made.
+By default it **detects and reports**. It can *also* **write** the fix straight
+to Salesforce (add Mari to the team + the Overlay split) via an **"Update in
+Salesforce"** button and an **"Update all"** bulk button — but only once the
+one-time Connected App setup below is done. Until then those buttons stay
+harmless deep links that open the opp in Salesforce for a manual edit. See
+**Auto-write (optional)** below.
 
 ## What's here
 
@@ -73,8 +78,51 @@ table — a refresh is just dropping the new file.
 | `OVERLAY_PERSON` | optional | The permitted AE Overlay's name. Defaults to `Mari Takiyama`. |
 | `SF_LIGHTNING_URL` | optional | Base for the "open in Salesforce" links. Defaults to `https://zendesk.lightning.force.com`. |
 | `PORT` | optional | Defaults to 8080. |
+| `SF_CLIENT_ID`, `SF_CLIENT_SECRET` | **for auto-write** | From the Connected App (see below). Setting *both* turns on the write buttons. |
+| `SF_LOGIN_URL` | optional | The org's My Domain login host. Defaults to `https://zendesk.my.salesforce.com`. |
+| `SF_REDIRECT_URI` | optional | OAuth callback. Leave unset to auto-derive `<app-url>/oauth/callback` from the request. |
+| `FLASK_SECRET_KEY` | recommended w/ auto-write | Signs the session cookie holding each user's token. Set any long random string so logins survive restarts. |
 
 > Uploads are open to anyone with the link by design.
+
+## Auto-write (optional) — "Update in Salesforce" that actually writes
+
+**How it works:** the person who clicks **Update** logs in with **their own**
+Salesforce account (the usual Okta SSO), and the app writes **as them** — adding
+Mari to the Opportunity Team (`AE Overlay`, Read access) and a 100% `Overlay`
+split, skipping whatever already exists. No shared password, no integration user;
+every write is attributed to the real clicker by Salesforce. This is the same
+logic proven by the local `serve_local.py`, just using web OAuth instead of the
+`sf` CLI token (a cloud server has no `sf` session, so it must use OAuth).
+
+**It stays OFF until `SF_CLIENT_ID` + `SF_CLIENT_SECRET` are set.** With them
+unset the buttons are plain deep links and nothing can write — safe to deploy now.
+
+### One-time admin step (needs "Customize Application" / a Salesforce admin)
+
+Ask a Salesforce admin to create a **Connected App** (Setup → App Manager → New
+Connected App, or External Client App):
+
+1. **Enable OAuth Settings** ✔
+2. **Callback URL:** `https://<your-app-foundry-url>/oauth/callback`
+   (exact match; add both the deployed URL and any custom domain).
+3. **OAuth Scopes:** *Manage user data via APIs (`api`)* and *Perform requests
+   at any time (`refresh_token`)*.
+4. Save. Copy the **Consumer Key** → `SF_CLIENT_ID` and **Consumer Secret** →
+   `SF_CLIENT_SECRET`.
+5. (Typical) leave "Require Secret for Web Server Flow" on; set the app's
+   permitted users / IP relaxation per Zendesk policy.
+
+Then in App Foundry set `SF_CLIENT_ID`, `SF_CLIENT_SECRET`, `FLASK_SECRET_KEY`
+(and `SF_REDIRECT_URI` only if the auto-derived URL isn't reachable), and
+redeploy. The write buttons light up for everyone — each writing as themselves.
+
+**Verify:** open `/api/health` — `writeConfigured: true` means it's live.
+
+> ⚠️ **"Update all" writes to production for every opp in the current view.**
+> Filter first (segment/type/search) to scope a smaller batch, and eyeball it,
+> before running the whole list. The single-opp button shows a preview + confirm
+> for each write.
 
 ## Run locally
 

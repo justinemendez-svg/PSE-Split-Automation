@@ -2,6 +2,9 @@
 node_modules/
 *.log
 logs/
+# Audit log of real Salesforce writes — contains prod opp IDs + usernames.
+# NEVER commit this to the public repo.
+writes.log.jsonl
 # Generated each run; also copied to the GTM Ops Drive folder — not source.
 Japan_Overlay_AE_Automation.csv
 # Local Python cruft

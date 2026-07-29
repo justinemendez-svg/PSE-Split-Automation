@@ -98,6 +98,16 @@
   table.kv td.k2 { color: var(--muted); font-weight: 600; white-space: nowrap; }
   table.kv td.v2 { font-weight: 650; }
   .action-body .also { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .write-msg { font-size: 12px; margin-top: 6px; font-weight: 600; }
+  .write-msg:empty { display: none; }
+  .write-msg.ok { color: var(--ok); }
+  .write-msg.err { color: var(--bad); }
+  .btn-sf:disabled { opacity: .5; cursor: default; }
+  .bulk-bar { display: flex; align-items: center; gap: 14px; margin-bottom: 16px;
+    padding: 12px 16px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; box-shadow: inset 3px 0 0 var(--warn); }
+  .bulk-bar .bulk-info { font-weight: 650; }
+  .bulk-bar .write-msg { margin-top: 0; }
 </style>
 </head>
 <body>
@@ -159,6 +169,11 @@
     </div>
 
     <div id="panelAction" class="hidden">
+      <div id="bulkBar" class="bulk-bar hidden">
+        <div class="bulk-info"><span id="bulkCount">0</span> opps in this view need Mari</div>
+        <button class="btn-sf" id="updateAllBtn">Update all →</button>
+        <span id="bulkMsg" class="write-msg"></span>
+      </div>
       <div class="action-list" id="actionList"></div>
       <div id="actionEmpty" class="empty hidden">Nothing to update — every in-scope opp already has Mari tagged as AE Overlay in both places. ✅</div>
     </div>

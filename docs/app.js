@@ -8,6 +8,23 @@ const SF_LIGHTNING_URL = "https://zendesk.lightning.force.com";
 
 const state = { rows: [], bucket: "", type: "", segment: "", q: "", sortKey: "closeDate", sortDir: -1 };
 
+// When served by serve_local.py the button can WRITE to Salesforce (preview →
+// confirm → write). On plain GitHub Pages there's no server, so it stays a
+// deep link. Detected once at load via /api/health.
+const writeApi = { enabled: false, org: null, person: null, splitReady: false };
+
+async function detectWriteApi() {
+  try {
+    const res = await fetch("/api/health", { cache: "no-store" });
+    if (!res.ok) return;
+    const h = await res.json();
+    writeApi.enabled = !!h.writeEnabled;
+    writeApi.org = h.org;
+    writeApi.person = h.person;
+    writeApi.splitReady = !!h.splitReady;
+  } catch (e) { /* no local server — deep-link mode */ }
+}
+
 const $ = (id) => document.getElementById(id);
 
 function fmtAmount(n) {
@@ -29,6 +46,7 @@ function esc(s) {
 
 async function load() {
   try {
+    await detectWriteApi();
     const res = await fetch("data.json?_=" + Date.now());
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
@@ -168,16 +186,24 @@ function renderAction() {
       "</tbody></table>" +
       (needSplit ? "" : '<div class="also">Overlay split already set — no split change needed.</div>') +
       "</div>";
-    // Deep-link straight to this opp's Opportunity Team related list to add Mari.
-    const teamUrl = r.id
-      ? SF_LIGHTNING_URL + "/lightning/r/Opportunity/" + r.id + "/related/OpportunityTeamMembers/view"
-      : null;
-    const updateBtn = teamUrl
-      ? '<a class="btn-sf" href="' + teamUrl + '" target="_blank" rel="noopener" ' +
-        'title="Opens this opp’s Opportunity Team in Salesforce so you can add Mari">Update in Salesforce →</a>'
-      : "";
+    // Two modes for the button:
+    //  • local server present → auto-write (preview → confirm → write)
+    //  • static GitHub Pages  → deep link to the Opportunity Team related list
+    let updateBtn = "";
+    if (r.id && writeApi.enabled) {
+      updateBtn =
+        '<button class="btn-sf" data-write="' + esc(r.id) + '" ' +
+        'title="Preview, then write Mari to this opp in ' + esc(writeApi.org) + '">' +
+        "Update in Salesforce →</button>";
+    } else if (r.id) {
+      const teamUrl = SF_LIGHTNING_URL + "/lightning/r/Opportunity/" + r.id +
+        "/related/OpportunityTeamMembers/view";
+      updateBtn =
+        '<a class="btn-sf" href="' + teamUrl + '" target="_blank" rel="noopener" ' +
+        'title="Opens this opp’s Opportunity Team in Salesforce so you can add Mari">Update in Salesforce →</a>';
+    }
     return (
-      '<div class="action-card">' +
+      '<div class="action-card" data-card="' + esc(r.id || "") + '">' +
       '<div class="action-head">' +
         '<div class="head-main">' +
           '<div class="opp-title">' + title + "</div>" +
@@ -185,6 +211,7 @@ function renderAction() {
           '<div class="meta">' + esc(r.account || "—") + " · " + esc(r.owner || "—") +
             " · " + esc(r.segment || "—") + " · " + esc(r.type || "—") + "</div>" +
           '<div class="reason">' + esc(r.reason) + "</div>" +
+          '<div class="write-msg" data-msg="' + esc(r.id || "") + '"></div>' +
         "</div>" +
         updateBtn +
       "</div>" +
@@ -192,8 +219,143 @@ function renderAction() {
       "</div>"
     );
   }).join("");
+
+  // Wire the auto-write buttons (only present in local-server mode).
+  list.querySelectorAll("button[data-write]").forEach((btn) => {
+    btn.addEventListener("click", () => startWrite(btn.dataset.write, btn));
+  });
+
+  // "Update all" bar — only in local-server (write) mode, and only when the
+  // current filtered view actually has opps to update.
+  const bar = $("bulkBar");
+  if (bar) {
+    const showBar = writeApi.enabled && rows.length > 0;
+    bar.classList.toggle("hidden", !showBar);
+    if (showBar) {
+      $("bulkCount").textContent = rows.length;
+      const allBtn = $("updateAllBtn");
+      allBtn.disabled = false;
+      allBtn.textContent = "Update all " + rows.length + " →";
+      $("bulkMsg").textContent = "";
+      // Snapshot the exact ids in this view so filters scope the bulk write.
+      allBtn.onclick = () => updateAll(rows.map((r) => r.id).filter(Boolean));
+    }
+  }
   $("actionEmpty").classList.toggle("hidden", rows.length !== 0);
   list.classList.toggle("hidden", rows.length === 0);
+}
+
+// --- Auto-write flow (local server only): preview → confirm → write ----------
+function setMsg(oppId, html, cls) {
+  const el = document.querySelector('[data-msg="' + CSS.escape(oppId) + '"]');
+  if (el) { el.className = "write-msg" + (cls ? " " + cls : ""); el.innerHTML = html; }
+}
+
+async function startWrite(oppId, btn) {
+  btn.disabled = true;
+  setMsg(oppId, "Checking Salesforce…", "");
+  let plan;
+  try {
+    const res = await fetch("/api/preview", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ oppId }),
+    });
+    plan = await res.json();
+    if (!res.ok) throw new Error(plan.error || ("HTTP " + res.status));
+  } catch (e) {
+    setMsg(oppId, "Couldn’t reach Salesforce — " + esc(e.message), "err");
+    btn.disabled = false;
+    return;
+  }
+
+  if (plan.nothingToDo) {
+    setMsg(oppId, "Already tagged in both places — nothing to write. Reload to refresh the list.", "ok");
+    btn.disabled = false;
+    return;
+  }
+
+  // Build a plain-language confirm from the dry-run plan.
+  const lines = plan.steps.map((s) => s.blocked ? "⚠️ " + s.blocked : "• " + s.label);
+  const ok = window.confirm(
+    "This will write to Salesforce (" + writeApi.org + "):\n\n" +
+    lines.join("\n") + "\n\nProceed?");
+  if (!ok) { setMsg(oppId, "Cancelled — nothing was written.", ""); btn.disabled = false; return; }
+
+  setMsg(oppId, "Writing to Salesforce…", "");
+  try {
+    const res = await fetch("/api/write", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ oppId, confirm: "CONFIRM" }),
+    });
+    const out = await res.json();
+    if (!res.ok && !out.results) throw new Error(out.error || ("HTTP " + res.status));
+    const parts = (out.results || []).map((r) =>
+      (r.ok ? "✓ " : "✗ ") + r.object + (r.ok ? " created" : " failed: " + esc(r.error || "")));
+    if (out.done) {
+      setMsg(oppId, "Done — Mari is now in both. " + parts.join(" · "), "ok");
+      // Reflect it locally so the row drops out of the worklist on next render.
+      const row = state.rows.find((x) => x.id === oppId);
+      if (row) { row.mariOnTeam = true; row.mariOnSplit = true; row.bucket = "ok"; }
+      const card = document.querySelector('[data-card="' + CSS.escape(oppId) + '"]');
+      if (card) card.style.opacity = ".55";
+      if ($("tabActionCount")) $("tabActionCount").textContent =
+        state.rows.filter((r) => r.bucket === "missing").length;
+    } else {
+      setMsg(oppId, parts.join(" · ") || "No changes made.", "err");
+      btn.disabled = false;
+    }
+  } catch (e) {
+    setMsg(oppId, "Write failed — " + esc(e.message), "err");
+    btn.disabled = false;
+  }
+}
+
+// Bulk write for every opp in the current filtered view.
+async function updateAll(oppIds) {
+  const allBtn = $("updateAllBtn");
+  const msg = $("bulkMsg");
+  if (!oppIds.length) return;
+
+  const ok = window.confirm(
+    "This will write to Salesforce (" + writeApi.org + ") for " + oppIds.length +
+    " opportunit" + (oppIds.length === 1 ? "y" : "ies") + ".\n\n" +
+    "Each one gets Mari added as AE Overlay (team, Read access) and a 100% " +
+    "Overlay split — skipping whatever’s already there.\n\nProceed?");
+  if (!ok) { msg.className = "write-msg"; msg.textContent = "Cancelled — nothing was written."; return; }
+
+  allBtn.disabled = true;
+  msg.className = "write-msg";
+  msg.textContent = "Writing " + oppIds.length + " opps… this can take a minute.";
+  try {
+    const res = await fetch("/api/write-all", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ oppIds, confirm: "CONFIRM" }),
+    });
+    const out = await res.json();
+    if (!res.ok && !out.items) throw new Error(out.error || ("HTTP " + res.status));
+
+    // Reflect successes locally so the worklist shrinks.
+    let failed = 0;
+    for (const item of out.items || []) {
+      if (item.done) {
+        const row = state.rows.find((x) => x.id === item.oppId);
+        if (row) { row.mariOnTeam = true; row.mariOnSplit = true; row.bucket = "ok"; }
+      } else {
+        failed++;
+      }
+    }
+    if ($("tabActionCount")) $("tabActionCount").textContent =
+      state.rows.filter((r) => r.bucket === "missing").length;
+
+    msg.className = "write-msg " + (failed ? "err" : "ok");
+    msg.textContent = "Done — " + (out.done || 0) + " of " + out.count +
+      " updated" + (failed ? " · " + failed + " had errors (see writes.log.jsonl)" : "") + ".";
+    renderAction();  // re-render: updated opps drop out of the view
+  } catch (e) {
+    msg.className = "write-msg err";
+    msg.textContent = "Bulk write failed — " + esc(e.message);
+    allBtn.disabled = false;
+  }
 }
 
 function filtered() {
