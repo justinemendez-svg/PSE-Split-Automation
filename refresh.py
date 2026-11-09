@@ -1,0 +1,248 @@
+#!/usr/bin/env python3
+"""Refresh the Partner Sales Rep team and Overlay split dashboard.
+
+Reads commissionable Renewal, New Business, and Expansion Opportunities with
+an active assigned Partner Sales Rep, and checks for that user in the
+Opportunity Team and 100% Overlay split. This refresh is read-only.
+
+Run with: python3 refresh.py --org prod
+"""
+
+from __future__ import annotations
+
+import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import datetime as dt
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+DATA_OUT = os.path.join(HERE, "docs", "pse-data.json")
+API_VERSION = "v60.0"
+LIGHTNING_URL = "https://zendesk.lightning.force.com"
+SPLIT_TYPE_LABEL = "Overlay"
+SPLIT_PERCENTAGE = 100
+OPPORTUNITY_TYPES = ("Renewal", "New Business", "Expansion")
+SCOPE_VERSION = 2
+
+
+def sf_session(org: str | None) -> tuple[str, str]:
+    """Read the user's existing Salesforce CLI session without displaying it."""
+    cmd = ["sf", "org", "display", "--json"]
+    if org:
+        cmd += ["--target-org", org]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    except FileNotFoundError:
+        sys.exit("ERROR: Salesforce CLI not found. Install it with `brew install sf`.")
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "Salesforce CLI could not read a session.").strip()
+        sys.exit(f"ERROR: {detail}")
+
+    try:
+        result = json.loads(proc.stdout).get("result", {})
+    except json.JSONDecodeError:
+        sys.exit("ERROR: Salesforce CLI returned invalid session data.")
+    token, instance = result.get("accessToken"), result.get("instanceUrl")
+    if not token or not instance:
+        sys.exit("ERROR: Salesforce session unavailable. Run `sf org login web --alias prod --instance-url https://zendesk.my.salesforce.com`.")
+    return token, instance.rstrip("/")
+
+
+def sf_query(soql: str, token: str, instance: str, label: str = "records") -> list[dict]:
+    """Fetch every page of a Salesforce REST query."""
+    url = (f"{instance}/services/data/{API_VERSION}/query/?q="
+           f"{urllib.parse.quote(soql, safe='')}")
+    rows: list[dict] = []
+    while url:
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+        for attempt in range(5):
+            try:
+                with urllib.request.urlopen(req, timeout=90) as response:
+                    page = json.loads(response.read().decode("utf-8"))
+                break
+            except urllib.error.HTTPError as exc:
+                body = exc.read().decode("utf-8", errors="replace")
+                try:
+                    errors = json.loads(body)
+                    detail = "; ".join(item.get("message", "") for item in errors)
+                except (json.JSONDecodeError, AttributeError):
+                    detail = body[:500]
+                if exc.code in {429, 500, 502, 503, 504} and attempt < 4:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise RuntimeError(f"Salesforce query failed ({exc.code}): {detail or exc.reason}") from exc
+            except (urllib.error.URLError, TimeoutError) as exc:
+                if attempt < 4:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise RuntimeError(f"Could not reach Salesforce: {exc}") from exc
+        rows.extend(page.get("records", []))
+        if page.get("nextRecordsUrl"):
+            print(f"  Fetched {len(rows):,} {label}…", flush=True)
+        next_url = page.get("nextRecordsUrl")
+        url = f"{instance}{next_url}" if next_url else ""
+    return rows
+
+
+def _children(record: dict, key: str) -> list[dict]:
+    return (record.get(key) or {}).get("records") or []
+
+
+def resolve_split_type_id(token: str, instance: str) -> str:
+    """Resolve the org-specific Overlay SplitType ID from an existing split."""
+    rows = sf_query(
+        "SELECT SplitTypeId FROM OpportunitySplit "
+        f"WHERE SplitType.MasterLabel = '{SPLIT_TYPE_LABEL}' LIMIT 1",
+        token, instance, "Overlay split type",
+    )
+    if not rows or not rows[0].get("SplitTypeId"):
+        raise RuntimeError("No existing Overlay split was found, so the Overlay SplitType ID could not be resolved.")
+    return rows[0]["SplitTypeId"]
+
+
+def classify(record: dict, team: list[dict], splits: list[dict]) -> dict:
+    rep_id = record.get("Partner_Sales_Rep__c")
+    rep = record.get("Partner_Sales_Rep__r") or {}
+    rep_name = (rep.get("Name") or "").strip()
+    is_active = rep.get("IsActive")
+    team_ids = {member.get("UserId") for member in team if member.get("UserId")}
+    rep_on_team = bool(rep_id and rep_id in team_ids)
+    split_owner_ids = {split.get("SplitOwnerId") for split in splits if split.get("SplitOwnerId")}
+    rep_on_split = bool(rep_id and rep_id in split_owner_ids)
+
+    if is_active is True:
+        complete = rep_on_team and rep_on_split
+        bucket = "complete" if complete else "needs_call"
+        missing = []
+        if not rep_on_team:
+            missing.append("Opportunity Team")
+        if not rep_on_split:
+            missing.append(f"{SPLIT_TYPE_LABEL} split")
+        reason = "PSE is on the Opportunity Team and Overlay split" if complete else "Active partner rep is missing from " + " and ".join(missing)
+    elif is_active is False:
+        bucket, reason = "inactive_rep", "Assigned partner rep is inactive"
+    else:
+        bucket, reason = "unknown_status", "Could not confirm the assigned user's active status"
+
+    return {
+        "id": record.get("Id"),
+        "name": record.get("Name"),
+        "account": (record.get("Account") or {}).get("Name"),
+        "accountOwner": ((record.get("Account") or {}).get("Owner") or {}).get("Name"),
+        "stage": record.get("StageName"),
+        "closeDate": record.get("CloseDate"),
+        "type": record.get("Type"),
+        "segment": record.get("Account_Owner_Market_Segment__c"),
+        "region": record.get("Region__c"),
+        "amount": record.get("Amount"),
+        "nonCommissionable": record.get("Non_Commissionable__c"),
+        "partnerRepId": rep_id,
+        "partnerRepName": rep_name or "(name unavailable)",
+        "partnerRepActive": is_active,
+        "partnerRepOnTeam": rep_on_team,
+        "partnerRepOnSplit": rep_on_split,
+        "bucket": bucket,
+        "reason": reason,
+    }
+
+
+def build_soql() -> str:
+    types = ", ".join("'" + value + "'" for value in OPPORTUNITY_TYPES)
+    return (
+        "SELECT Id, Name, StageName, CloseDate, Type, Amount, Non_Commissionable__c, Account.Name, Account.Owner.Name, "
+        "Account_Owner_Market_Segment__c, Region__c, Partner_Sales_Rep__c, "
+        "Partner_Sales_Rep__r.Name, Partner_Sales_Rep__r.IsActive "
+        "FROM Opportunity WHERE Partner_Sales_Rep__c != null "
+        "AND Non_Commissionable__c = false "
+        f"AND Type IN ({types}) "
+        "AND Partner_Sales_Rep__r.IsActive = true"
+    )
+
+
+def build_team_soql(opportunity_ids: list[str]) -> str:
+    ids = ",".join("'" + value + "'" for value in opportunity_ids)
+    return (
+        "SELECT OpportunityId, UserId FROM OpportunityTeamMember "
+        f"WHERE OpportunityId IN ({ids})"
+    )
+
+
+def build_split_soql(opportunity_ids: list[str], split_type_id: str) -> str:
+    ids = ",".join("'" + value + "'" for value in opportunity_ids)
+    return (
+        "SELECT OpportunityId, SplitOwnerId FROM OpportunitySplit "
+        f"WHERE OpportunityId IN ({ids}) AND SplitTypeId = '{split_type_id}'"
+    )
+
+
+def summarize(active_rows: list[dict]) -> dict:
+    tagged = sum(1 for row in active_rows if row.get("partnerRepOnTeam") is True and row.get("partnerRepOnSplit") is True)
+    return {
+        "total": len(active_rows),
+        "tagged": tagged,
+        "needsUpdate": len(active_rows) - tagged,
+    }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Refresh the PSE Split Automation dashboard.")
+    parser.add_argument("--org", help="Salesforce CLI org alias or username")
+    args = parser.parse_args()
+
+    token, instance = sf_session(args.org)
+    try:
+        split_type_id = resolve_split_type_id(token, instance)
+        records = sf_query(build_soql(), token, instance, "opportunities")
+        print(f"Found {len(records):,} commissionable Renewal, New Business, or Expansion opportunities with an assigned Partner Sales Rep. Fetching team and Overlay split membership…", flush=True)
+        team_by_opp: dict[str, list[dict]] = {}
+        splits_by_opp: dict[str, list[dict]] = {}
+        ids = [record["Id"] for record in records if record.get("Id")]
+        batch_size = 500
+        batches = [ids[start:start + batch_size] for start in range(0, len(ids), batch_size)]
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            futures = {}
+            for batch in batches:
+                futures[pool.submit(sf_query, build_team_soql(batch), token, instance, "team members")] = ("team", batch)
+                futures[pool.submit(sf_query, build_split_soql(batch, split_type_id), token, instance, "Overlay splits")] = ("split", batch)
+            for completed, future in enumerate(as_completed(futures), start=1):
+                kind, _ = futures[future]
+                for member in future.result():
+                    target = team_by_opp if kind == "team" else splits_by_opp
+                    target.setdefault(member.get("OpportunityId"), []).append(member)
+                if completed % 20 == 0 or completed == len(futures):
+                    print(f"  Completed {completed:,}/{len(futures):,} team and split queries.", flush=True)
+    except RuntimeError as exc:
+        sys.exit(f"ERROR: {exc}")
+
+    classified = [classify(record, team_by_opp.get(record.get("Id"), []), splits_by_opp.get(record.get("Id"), [])) for record in records]
+    rows = [row for row in classified if row["partnerRepActive"] is True]
+    summary = summarize(rows)
+    data = {
+        "generatedAt": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+        "config": {"scope": "Commissionable Renewal, New Business, and Expansion opportunities",
+                   "scopeVersion": SCOPE_VERSION, "commissionableOnly": True,
+                   "opportunityTypes": list(OPPORTUNITY_TYPES), "splitType": SPLIT_TYPE_LABEL,
+                   "splitTypeId": split_type_id, "splitPercentage": SPLIT_PERCENTAGE},
+        "summary": summary,
+        "rows": rows,
+    }
+    os.makedirs(os.path.dirname(DATA_OUT), exist_ok=True)
+    with open(DATA_OUT, "w", encoding="utf-8") as output:
+        json.dump(data, output, ensure_ascii=False, indent=2)
+
+    print(f"Checked {len(records):,} opportunities with a partner rep.")
+    print(f"Active Partner Sales Rep opportunities: {summary['total']:,}")
+    print(f"PSE already on Opportunity Team and Overlay split: {summary['tagged']:,}")
+    print(f"PSE to update: {summary['needsUpdate']:,}")
+    print(f"Wrote local dashboard data to {os.path.relpath(DATA_OUT, HERE)}")
+
+
+if __name__ == "__main__":
+    main()

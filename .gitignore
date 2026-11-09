@@ -1,0 +1,16 @@
+.DS_Store
+node_modules/
+*.log
+logs/
+# Local Salesforce write audit; do not commit it.
+writes.log.jsonl
+# Local snapshot contains Salesforce Opportunity and employee data.
+docs/pse-data.json
+# Local Python cruft
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.env.*
+!.env.example

@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PSE Split Automation</title>
+<style>
+  :root { --bg:#f6f8f9; --panel:#fff; --line:#e2e7eb; --text:#1b2733; --muted:#68737d; --teal:#17494d; --lime:#78a300; --warn:#b26a00; --ok:#3f8c00; --chip:#eef1f3; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  header { display:flex; align-items:center; gap:16px; flex-wrap:wrap; padding:16px 24px; background:var(--panel); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:10; }
+  h1 { margin:0; font-size:18px; font-weight:680; } .sub { color:var(--muted); font-size:12px; }
+  .spacer { flex:1; }
+  button { border:0; border-radius:8px; padding:9px 15px; background:var(--teal); color:white; font:inherit; font-weight:650; cursor:pointer; }
+  button:hover { background:#23646a; } button:disabled { opacity:.5; cursor:wait; }
+  button.ghost { border:1px solid var(--line); background:white; color:var(--text); } button.ghost:hover { background:#f3f5f7; }
+  main { max-width:1500px; margin:0 auto; padding:24px; }
+  .cards { display:grid; grid-template-columns:repeat(4,minmax(150px,1fr)); gap:14px; margin-bottom:20px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:15px 18px; min-height:96px; }
+  .card .k { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.45px; }
+  .card .v { font-size:28px; font-weight:720; margin-top:5px; } .card.ok .v { color:var(--ok); } .card.warn .v { color:var(--warn); }
+  .toolbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+  input[type=search],select { min-height:40px; padding:8px 12px; border:1px solid var(--line); border-radius:8px; background:#f3f5f7; color:var(--text); font:inherit; }
+  input[type=search] { flex:1; min-width:250px; } select { min-width:150px; cursor:pointer; }
+  .multi-filter { position:relative; }
+  .filter-trigger { display:flex; align-items:center; justify-content:space-between; gap:16px; min-width:170px; min-height:40px; padding:8px 12px; border:1px solid var(--line); border-radius:8px; background:#f3f5f7; color:var(--text); font:inherit; font-weight:500; text-align:left; }
+  .filter-trigger::after { content:"▾"; color:var(--muted); font-size:12px; }
+  .filter-menu { position:absolute; z-index:20; top:calc(100% + 5px); left:0; width:240px; max-height:300px; overflow:auto; border:1px solid var(--line); border-radius:9px; background:white; box-shadow:0 8px 24px rgba(27,39,51,.14); }
+  .filter-menu.hidden { display:none!important; }
+  .filter-option { display:flex; align-items:center; gap:9px; padding:8px 12px; cursor:pointer; }
+  .filter-option:hover { background:#f3f5f7; }
+  .filter-option input { accent-color:var(--teal); }
+  .filter-actions { position:sticky; bottom:0; display:flex; justify-content:space-between; padding:7px 10px; border-top:1px solid var(--line); background:#fff; }
+  .filter-actions button { padding:4px 6px; background:transparent; color:var(--teal); font-size:12px; }
+  .filter-actions button:hover { background:#f3f5f7; }
+  h2 { margin:16px 0 12px; font-size:17px; font-weight:680; }
+  .opp-title { font-size:15px; font-weight:680; }
+  .account-name { font-weight:630; } .pse-name { font-weight:650; color:var(--teal); }
+  .pill { display:inline-block; border-radius:999px; padding:2px 9px; background:#e9f3e9; color:var(--ok); font-size:11px; font-weight:700; white-space:nowrap; }
+  .pill.warn { background:#fff0d4; color:var(--warn); }
+  .bulk-bar { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:14px; padding:13px 17px; background:var(--panel); border:1px solid var(--line); border-radius:12px; box-shadow:inset 3px 0 0 var(--warn); }
+  .bulk-info { font-weight:680; }
+  .action-list { display:grid; gap:14px; }
+  .action-card { overflow:hidden; background:var(--panel); border:1px solid var(--line); border-radius:12px; box-shadow:inset 3px 0 0 var(--warn); }
+  .action-card.is-tagged { box-shadow:inset 3px 0 0 var(--ok); }
+  .action-head { display:flex; align-items:flex-start; gap:16px; padding:15px 18px; }
+  .head-main { flex:1; min-width:0; } .action-head .btn-update { flex-shrink:0; white-space:nowrap; }
+  a.btn-update { display:inline-flex; align-items:center; border-radius:8px; padding:9px 15px; background:var(--teal); color:#fff; font-weight:650; text-decoration:none; }
+  a.btn-update:hover { background:#23646a; }
+  .details-line { margin-top:4px; color:var(--muted); font-size:12px; overflow-wrap:anywhere; }
+  .pse-tag { display:inline-flex; align-items:center; gap:8px; margin-top:9px; padding:4px 10px; border-radius:7px; background:#eaf2f1; color:var(--teal); }
+  .action-steps { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:28px; padding:14px 18px 16px; border-top:1px solid var(--line); }
+  .step { min-width:0; }
+  .step-title { font-size:14px; font-weight:700; }
+  .step-path { margin-top:3px; color:var(--muted); font-size:12px; }
+  .step-values { width:min(100%,420px); margin-top:4px; border-collapse:collapse; overflow:hidden; border-radius:8px; background:#f1f3f5; }
+  .step-values td { padding:7px 14px; border-bottom:1px solid var(--line); }
+  .step-values tr:last-child td { border-bottom:0; }
+  .step-values td:first-child { color:var(--muted); font-weight:650; white-space:nowrap; }
+  .step-values td:last-child { font-weight:650; }
+  .also { margin-top:7px; color:var(--muted); font-size:12px; }
+  .msg { margin-top:5px; font-weight:650; } .msg.ok { color:var(--ok); } .msg.err { color:#b42318; }
+  .pagination { display:flex; justify-content:flex-end; align-items:center; gap:9px; padding:11px 2px; color:var(--muted); font-size:12px; }
+  .pagination button { padding:6px 11px; font-size:12px; }
+  .empty,.status { padding:40px 20px; text-align:center; color:var(--muted); } .status.err { color:#b42318; }
+  .hidden { display:none!important; } #refreshMsg.err { color:#b42318; } #refreshMsg.ok { color:var(--ok); }
+  a { color:var(--teal); text-decoration:none; } a:hover { text-decoration:underline; }
+  @media(max-width:900px) { .cards { grid-template-columns:repeat(2,minmax(145px,1fr)); } .action-head { flex-direction:column; } .action-steps { grid-template-columns:1fr; gap:14px; } }
+  @media(max-width:600px) { main { padding:16px; } header { padding:14px 16px; } .cards { gap:8px; } input[type=search] { min-width:100%; } }
+</style>
+</head>
+<body>
+<header>
+  <div><h1>PSE Split Automation</h1><div class="sub">Active Partner Sales Rep coverage</div></div>
+  <div class="spacer"></div>
+  <span id="refreshMsg" class="sub" aria-live="polite"></span><span id="who" class="sub"></span>
+  <button class="ghost hidden" id="refreshBtn">Refresh data</button><button id="csvBtn">Export CSV</button>
+</header>
+<main>
+  <div id="status" class="status">Loading dashboard data…</div>
+  <section id="dashboard" class="hidden">
+    <div class="cards">
+      <div class="card"><div class="k">Total active PSE opps</div><div class="v" id="cTotal">—</div></div>
+      <div class="card ok"><div class="k">PSE fully set up (Team + Split)</div><div class="v" id="cTagged">—</div></div>
+      <div class="card warn"><div class="k">PSE to update</div><div class="v" id="cNeedsUpdate">—</div></div>
+      <div class="card"><div class="k">Scope</div><div class="v" style="font-size:15px">Commissionable</div><div class="sub">Renewal · New Business · Expansion<br />All stages &amp; dates</div></div>
+    </div>
+    <div class="toolbar">
+      <input type="search" id="search" placeholder="Search Opportunity name, Account name, or Opp ID…" />
+      <div class="multi-filter" id="typeFilter" data-filter-key="type" data-filter-label="types">
+        <button type="button" class="filter-trigger" id="typeFilterButton" aria-haspopup="true" aria-expanded="false" aria-controls="typeFilterMenu">All types</button>
+        <div class="filter-menu hidden" id="typeFilterMenu" role="group" aria-label="Opportunity Type options"></div>
+      </div>
+      <div class="multi-filter" id="segmentFilter" data-filter-key="segment" data-filter-label="segments">
+        <button type="button" class="filter-trigger" id="segmentFilterButton" aria-haspopup="true" aria-expanded="false" aria-controls="segmentFilterMenu">All segments</button>
+        <div class="filter-menu hidden" id="segmentFilterMenu" role="group" aria-label="Market Segment options"></div>
+      </div>
+      <div class="multi-filter" id="regionFilter" data-filter-key="region" data-filter-label="regions">
+        <button type="button" class="filter-trigger" id="regionFilterButton" aria-haspopup="true" aria-expanded="false" aria-controls="regionFilterMenu">All regions</button>
+        <div class="filter-menu hidden" id="regionFilterMenu" role="group" aria-label="Region options"></div>
+      </div>
+      <span class="spacer"></span><span id="filterCount" class="sub"></span>
+    </div>
+    <section id="panelUpdate">
+      <h2>PSE to update</h2>
+      <div id="bulkBar" class="bulk-bar">
+        <div class="bulk-info"><span id="bulkCount">0</span> Opps need the active PSE added to the team and split</div>
+        <button id="updateAllBtn">Update all 0 in Salesforce →</button><span id="bulkMsg" class="msg"></span>
+      </div>
+      <div id="actionList" class="action-list"></div>
+      <div id="actionEmpty" class="empty hidden">No active PSE needs a Team or Overlay Split update for these filters.</div>
+      <div class="pagination"><span id="actionPageInfo"></span><button class="ghost" id="actionPrev">Previous</button><button class="ghost" id="actionNext">Next</button></div>
+    </section>
+    <footer class="sub">This list includes commissionable Renewal, New Business, and Expansion Opportunities with an active rep in <code>Partner_Sales_Rep__c</code> who is missing from the Opportunity Team, the 100% Overlay split, or both. Updates add only missing entries, after a confirmation preview.</footer>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
