@@ -9,6 +9,7 @@ import json
 import mimetypes
 import os
 import re
+import socket
 import subprocess
 import sys
 import threading
@@ -366,6 +367,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+
     def send_json(self, status: int, payload: dict):
         self.send_body(status, json.dumps(payload).encode("utf-8"))
 
@@ -550,6 +552,14 @@ class Handler(BaseHTTPRequestHandler):
         return self.send_json(404, {"error": "not found"})
 
 
+class IPv6ThreadingHTTPServer(ThreadingHTTPServer):
+    address_family = socket.AF_INET6
+
+    def server_bind(self):
+        self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+        super().server_bind()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Serve PSE Split Automation locally.")
     parser.add_argument("--org", help="Salesforce CLI org alias or username")
@@ -562,9 +572,20 @@ def main():
         print(error, file=sys.stderr)
         sys.exit(1)
     SESSION["token"], SESSION["instance"] = token, instance
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    servers = []
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+        servers.append(server)
+        ipv6_server = IPv6ThreadingHTTPServer(("::1", args.port), Handler)
+        servers.append(ipv6_server)
+    except OSError:
+        for active_server in servers:
+            active_server.server_close()
+        raise
+    threading.Thread(target=ipv6_server.serve_forever, daemon=True).start()
     print("PSE Split Automation — Salesforce Team & Split Update")
     print(f"Open http://localhost:{args.port}/")
+    print("Listening on IPv4 and IPv6 loopback only.")
     print(f"Updates add the assigned PSE as {TEAM_ROLE} with {TEAM_ACCESS} access and a {SPLIT_PERCENTAGE}% {SPLIT_TYPE_LABEL} split after confirmation.")
     print("Every write is rechecked against Salesforce and logged locally. Press Ctrl-C to stop.")
     try:
@@ -572,7 +593,9 @@ def main():
     except KeyboardInterrupt:
         print("\nStopped.")
     finally:
-        server.server_close()
+        ipv6_server.shutdown()
+        for active_server in servers:
+            active_server.server_close()
 
 
 if __name__ == "__main__":

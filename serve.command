@@ -1,10 +1,15 @@
 #!/bin/bash
-# Double-click to open the PSE Split Automation dashboard in Google Chrome.
+# Install/start the persistent local dashboard service, then open its page.
+set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-# 8772 may be used by a static preview; use a dedicated port for Salesforce actions.
-PORT=8773
-echo "PSE Split Automation → http://localhost:$PORT"
-echo "Leave this window open while using the dashboard. Press Ctrl-C to stop."
-( sleep 1; open -a "Google Chrome" "http://localhost:$PORT" ) &
-cd "$HERE" || exit 1
-python3 serve_local.py --org prod --port "$PORT"
+URL="http://localhost:8773/"
+
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  echo "The automatic background service is macOS-only."
+  echo "Run: python3 \"$HERE/serve_local.py\" --org prod --port 8773"
+  exit 1
+fi
+
+python3 "$HERE/install_local_service.py"
+open -a "Google Chrome" "$URL"
+echo "Opened PSE Split Automation at $URL"

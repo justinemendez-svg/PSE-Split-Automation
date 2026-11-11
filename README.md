@@ -14,7 +14,15 @@ sf org login web --alias prod --instance-url https://zendesk.my.salesforce.com
 ./serve.command
 ```
 
-The script starts the local server and opens [http://localhost:8773](http://localhost:8773) in Google Chrome. On a fresh clone, click **Refresh data** once to create the local snapshot. The page updates in place when refresh finishes. You can also start the server without the launcher:
+The first run copies the runnable dashboard into your user Application Support folder, installs a per-user macOS LaunchAgent, starts the server, and opens [http://localhost:8773](http://localhost:8773) in Google Chrome. After that, the server starts automatically at login and restarts if it exits, so the same URL stays available while you use your Mac. On a fresh clone, click **Refresh data** once to create the local snapshot. The page updates in place when refresh finishes. Run `./serve.command` again after pulling repository changes to update the local app copy.
+
+To remove automatic startup, run:
+
+```bash
+python3 uninstall_local_service.py
+```
+
+For a temporary/manual run (or on another OS), start the server in a terminal and leave it open:
 
 ```bash
 python3 serve_local.py --org prod
