@@ -4,6 +4,7 @@ const TEAM_ROLE = "Partner Account Executive";
 const SPLIT_TYPE = "Overlay";
 const SPLIT_PERCENTAGE = 100;
 const PAGE_SIZE = 100;
+const AUTO_REFRESH_MAX_AGE_MS = 30 * 60 * 1000;
 const OPPORTUNITY_TYPES = ["Renewal", "New Business", "Expansion"];
 const SCOPE_VERSION = 2;
 const state = {
@@ -42,12 +43,17 @@ async function load() {
       const status = $("status");
       status.className = state.writeApi.refreshEnabled ? "status" : "status err";
       status.textContent = state.writeApi.refreshEnabled
-        ? "No Salesforce snapshot yet. Click Refresh data to load the first dashboard snapshot."
+        ? "No Salesforce snapshot yet. Loading the first snapshot automatically…"
         : "Dashboard data is not available. Run `python3 refresh.py --org prod`, then reload. (HTTP " + response.status + ")";
+      if (state.writeApi.refreshEnabled && state.writeApi.loggedIn) void refreshData(false);
       return;
     }
-    hydrate(await response.json());
+    const data = await response.json();
+    hydrate(data);
     await detectApi();
+    const generatedAt = Date.parse(data.generatedAt || "");
+    const stale = !Number.isFinite(generatedAt) || Date.now() - generatedAt >= AUTO_REFRESH_MAX_AGE_MS;
+    if (stale && state.writeApi.refreshEnabled && state.writeApi.loggedIn) void refreshData(false);
   } catch (error) {
     await detectApi();
     const status = $("status");
@@ -337,14 +343,17 @@ async function reloadSnapshot() {
   hydrate(await response.json());
 }
 
-async function refreshData() {
+async function refreshData(force = true) {
   const button = $("refreshBtn");
   const message = $("refreshMsg");
   button.disabled = true; button.textContent = "Refreshing…";
-  message.className = "sub"; message.textContent = "Reading Salesforce…";
+  message.className = "sub";
+  message.textContent = force
+    ? "Refreshing Salesforce… This can take a few minutes."
+    : "Automatically refreshing Salesforce… This can take a few minutes.";
   try {
     if (!(await ensureWriteLogin())) throw new Error("Salesforce login is required to refresh the dashboard.");
-    const result = await postJson("/api/refresh", {});
+    const result = await postJson("/api/refresh", { force });
     if (result.jobId) {
       let complete = false;
       while (!complete) {
@@ -359,7 +368,9 @@ async function refreshData() {
     }
     await reloadSnapshot();
     message.className = "sub ok";
-    message.textContent = "Refreshed · " + fmtCount((result.summary || state.summary).total) + " in-scope active PSE Opps";
+    message.textContent = result.skipped
+      ? "Showing the latest Salesforce data · refreshed within the last 30 minutes"
+      : "Refreshed · " + fmtCount((result.summary || state.summary).total) + " in-scope active PSE Opps";
   } catch (error) {
     if (error.message.toLowerCase().includes("salesforce session expired")) state.writeApi.loggedIn = false;
     message.className = "sub err"; message.textContent = "Refresh failed: " + error.message;
@@ -435,7 +446,7 @@ function wire() {
   $("actionPrev").addEventListener("click", () => { state.updatePage = Math.max(1, state.updatePage - 1); renderUpdate(); });
   $("actionNext").addEventListener("click", () => { state.updatePage += 1; renderUpdate(); });
   $("updateAllBtn").addEventListener("click", updateAll);
-  $("refreshBtn").addEventListener("click", refreshData);
+  $("refreshBtn").addEventListener("click", () => refreshData(true));
   $("csvBtn").addEventListener("click", exportCsv);
 }
 

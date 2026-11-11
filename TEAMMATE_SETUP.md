@@ -22,7 +22,7 @@
    python3 serve_local.py --org prod
    ```
 
-5. Open [http://localhost:8773](http://localhost:8773) and select **Refresh data**. A fresh clone has no Salesforce snapshot; this first refresh creates it locally. To remove the macOS background service later, run `python3 uninstall_local_service.py`.
+5. Open [http://localhost:8773](http://localhost:8773). The dashboard automatically loads Salesforce data if its local snapshot is missing or more than 30 minutes old; **Refresh data** forces an immediate refresh. To remove the macOS background service later, run `python3 uninstall_local_service.py`.
 
 The worklist includes only commissionable **Renewal**, **New Business**, and **Expansion** Opportunities with an active assigned PSE missing from the Opportunity Team, the 100% **Overlay** split, or both. Search supports Opportunity name, Account name, and Opportunity ID. Type, Segment, and Region filters support multiple selections. Individual and filtered bulk actions add each rep with role **Partner Account Executive** and **Read** access, and create that PSE's 100% Overlay split, after confirmation. Existing entries are kept without duplicates. Inactive reps and Opportunities without an assigned PSE are excluded.
 

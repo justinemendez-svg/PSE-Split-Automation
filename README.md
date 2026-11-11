@@ -14,7 +14,7 @@ sf org login web --alias prod --instance-url https://zendesk.my.salesforce.com
 ./serve.command
 ```
 
-The first run copies the runnable dashboard into your user Application Support folder, installs a per-user macOS LaunchAgent, starts the server, and opens [http://localhost:8773](http://localhost:8773) in Google Chrome. After that, the server starts automatically at login and restarts if it exits, so the same URL stays available while you use your Mac. On a fresh clone, click **Refresh data** once to create the local snapshot. The page updates in place when refresh finishes. Run `./serve.command` again after pulling repository changes to update the local app copy.
+The first run copies the runnable dashboard into your user Application Support folder, installs a per-user macOS LaunchAgent, starts the server, and opens [http://localhost:8773](http://localhost:8773) in Google Chrome. After that, the server starts automatically at login and restarts if it exits, so the same URL stays available while you use your Mac. The dashboard automatically loads Salesforce data when its snapshot is missing or more than 30 minutes old. **Refresh data** still forces an immediate refresh. Run `./serve.command` again after pulling repository changes to update the local app copy.
 
 To remove automatic startup, run:
 
