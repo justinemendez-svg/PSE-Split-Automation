@@ -2,8 +2,8 @@
 """Refresh the Partner Sales Rep team and Overlay split dashboard.
 
 Reads commissionable Renewal, New Business, and Expansion Opportunities with
-an active assigned Partner Sales Rep, and checks for that user in the
-Opportunity Team and 100% Overlay split. This refresh is read-only.
+a tagged Partner; resolves the existing PSE or Partner Owner and checks
+the PSE field, Opportunity Team and Opportunity Splits. This refresh is read-only.
 
 Run with: python3 refresh.py --org prod
 """
@@ -29,7 +29,7 @@ LIGHTNING_URL = "https://zendesk.lightning.force.com"
 SPLIT_TYPE_LABEL = "Overlay"
 SPLIT_PERCENTAGE = 100
 OPPORTUNITY_TYPES = ("Renewal", "New Business", "Expansion")
-SCOPE_VERSION = 2
+from workflow import CLOSED_STAGE, PARTNER_FIELD, PARTNER_REL, REP_FIELDS, SCOPE_VERSION, rep_state, summary
 
 
 def sf_session(org: str | None) -> tuple[str, str]:
@@ -108,29 +108,8 @@ def resolve_split_type_id(token: str, instance: str) -> str:
 
 
 def classify(record: dict, team: list[dict], splits: list[dict]) -> dict:
-    rep_id = record.get("Partner_Sales_Rep__c")
-    rep = record.get("Partner_Sales_Rep__r") or {}
-    rep_name = (rep.get("Name") or "").strip()
-    is_active = rep.get("IsActive")
-    team_ids = {member.get("UserId") for member in team if member.get("UserId")}
-    rep_on_team = bool(rep_id and rep_id in team_ids)
-    split_owner_ids = {split.get("SplitOwnerId") for split in splits if split.get("SplitOwnerId")}
-    rep_on_split = bool(rep_id and rep_id in split_owner_ids)
-
-    if is_active is True:
-        complete = rep_on_team and rep_on_split
-        bucket = "complete" if complete else "needs_call"
-        missing = []
-        if not rep_on_team:
-            missing.append("Opportunity Team")
-        if not rep_on_split:
-            missing.append(f"{SPLIT_TYPE_LABEL} split")
-        reason = "PSE is on the Opportunity Team and Overlay split" if complete else "Active partner rep is missing from " + " and ".join(missing)
-    elif is_active is False:
-        bucket, reason = "inactive_rep", "Assigned partner rep is inactive"
-    else:
-        bucket, reason = "unknown_status", "Could not confirm the assigned user's active status"
-
+    value = rep_state(record, {member.get("UserId") for member in team},
+                      {split.get("SplitOwnerId") for split in splits})
     return {
         "id": record.get("Id"),
         "name": record.get("Name"),
@@ -143,13 +122,7 @@ def classify(record: dict, team: list[dict], splits: list[dict]) -> dict:
         "region": record.get("Region__c"),
         "amount": record.get("Amount"),
         "nonCommissionable": record.get("Non_Commissionable__c"),
-        "partnerRepId": rep_id,
-        "partnerRepName": rep_name or "(name unavailable)",
-        "partnerRepActive": is_active,
-        "partnerRepOnTeam": rep_on_team,
-        "partnerRepOnSplit": rep_on_split,
-        "bucket": bucket,
-        "reason": reason,
+        **value,
     }
 
 
@@ -157,12 +130,10 @@ def build_soql() -> str:
     types = ", ".join("'" + value + "'" for value in OPPORTUNITY_TYPES)
     return (
         "SELECT Id, Name, StageName, CloseDate, Type, Amount, Non_Commissionable__c, Account.Name, Account.Owner.Name, "
-        "Account_Owner_Market_Segment__c, Region__c, Partner_Sales_Rep__c, "
-        "Partner_Sales_Rep__r.Name, Partner_Sales_Rep__r.IsActive "
-        "FROM Opportunity WHERE Partner_Sales_Rep__c != null "
+        "Account_Owner_Market_Segment__c, Region__c, " + REP_FIELDS +
+        f" FROM Opportunity WHERE {PARTNER_FIELD} != null "
         "AND Non_Commissionable__c = false "
-        f"AND Type IN ({types}) "
-        "AND Partner_Sales_Rep__r.IsActive = true"
+        f"AND Type IN ({types}) AND StageName = '{CLOSED_STAGE}'"
     )
 
 
@@ -178,17 +149,12 @@ def build_split_soql(opportunity_ids: list[str], split_type_id: str) -> str:
     ids = ",".join("'" + value + "'" for value in opportunity_ids)
     return (
         "SELECT OpportunityId, SplitOwnerId FROM OpportunitySplit "
-        f"WHERE OpportunityId IN ({ids}) AND SplitTypeId = '{split_type_id}'"
+        f"WHERE OpportunityId IN ({ids})"
     )
 
 
 def summarize(active_rows: list[dict]) -> dict:
-    tagged = sum(1 for row in active_rows if row.get("partnerRepOnTeam") is True and row.get("partnerRepOnSplit") is True)
-    return {
-        "total": len(active_rows),
-        "tagged": tagged,
-        "needsUpdate": len(active_rows) - tagged,
-    }
+    return summary(active_rows)
 
 
 def main() -> None:
@@ -200,7 +166,7 @@ def main() -> None:
     try:
         split_type_id = resolve_split_type_id(token, instance)
         records = sf_query(build_soql(), token, instance, "opportunities")
-        print(f"Found {len(records):,} commissionable Renewal, New Business, or Expansion opportunities with an assigned Partner Sales Rep. Fetching team and Overlay split membership…", flush=True)
+        print(f"Found {len(records):,} commissionable Renewal, New Business, or Expansion opportunities with a tagged Partner. Fetching team and split membership…", flush=True)
         team_by_opp: dict[str, list[dict]] = {}
         splits_by_opp: dict[str, list[dict]] = {}
         ids = [record["Id"] for record in records if record.get("Id")]
@@ -222,23 +188,24 @@ def main() -> None:
         sys.exit(f"ERROR: {exc}")
 
     classified = [classify(record, team_by_opp.get(record.get("Id"), []), splits_by_opp.get(record.get("Id"), [])) for record in records]
-    rows = [row for row in classified if row["partnerRepActive"] is True]
+    rows = classified
     summary = summarize(rows)
     data = {
         "generatedAt": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
-        "config": {"scope": "Commissionable Renewal, New Business, and Expansion opportunities",
-                   "scopeVersion": SCOPE_VERSION, "commissionableOnly": True,
+        "config": {"scope": "Commissionable 08 - Closed Renewal, New Business, and Expansion opportunities",
+                   "scopeVersion": SCOPE_VERSION, "stage": CLOSED_STAGE, "partnerField": PARTNER_FIELD, "splitCheck": "any", "commissionableOnly": True,
                    "opportunityTypes": list(OPPORTUNITY_TYPES), "splitType": SPLIT_TYPE_LABEL,
                    "splitTypeId": split_type_id, "splitPercentage": SPLIT_PERCENTAGE},
         "summary": summary,
         "rows": rows,
     }
     os.makedirs(os.path.dirname(DATA_OUT), exist_ok=True)
-    with open(DATA_OUT, "w", encoding="utf-8") as output:
+    with open(DATA_OUT + ".tmp", "w", encoding="utf-8") as output:
         json.dump(data, output, ensure_ascii=False, indent=2)
 
+    os.replace(DATA_OUT + ".tmp", DATA_OUT)
     print(f"Checked {len(records):,} opportunities with a partner rep.")
-    print(f"Active Partner Sales Rep opportunities: {summary['total']:,}")
+    print(f"Partner opportunities: {summary['total']:,}")
     print(f"PSE already on Opportunity Team and Overlay split: {summary['tagged']:,}")
     print(f"PSE to update: {summary['needsUpdate']:,}")
     print(f"Wrote local dashboard data to {os.path.relpath(DATA_OUT, HERE)}")

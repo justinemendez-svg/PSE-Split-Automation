@@ -20,6 +20,8 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from workflow import CLOSED_STAGE, REP_FIELDS, PARTNER_FIELD, execute, in_scope, is_complete, summary
+
 from refresh import (
     API_VERSION, OPPORTUNITY_TYPES, SCOPE_VERSION, SPLIT_PERCENTAGE,
     SPLIT_TYPE_LABEL, build_split_soql, build_team_soql,
@@ -38,6 +40,7 @@ SESSION = {"org": None, "token": None, "instance": None, "splitTypeId": None}
 SESSION_LOCK = threading.Lock()
 SNAPSHOT_LOCK = threading.Lock()
 REFRESH_LOCK = threading.Lock()
+WRITE_LOCK = threading.Lock()
 AUTO_REFRESH_MAX_AGE_SECONDS = 30 * 60
 
 
@@ -55,12 +58,13 @@ def refresh_session() -> tuple[str, str]:
     return token, instance
 
 
-def sf_rest(method: str, path: str, body: dict | None = None):
+def sf_rest(method: str, path: str, body: dict | None = None, headers: dict | None = None):
     token, instance = current_session()
     data = json.dumps(body).encode("utf-8") if body is not None else None
     request = urllib.request.Request(instance + path, data=data, method=method)
     request.add_header("Authorization", "Bearer " + token)
     request.add_header("Content-Type", "application/json")
+    for name, value in (headers or {}).items(): request.add_header(name, value)
     try:
         with urllib.request.urlopen(request, timeout=90) as response:
             raw = response.read().decode("utf-8")
@@ -76,6 +80,7 @@ def sf_rest(method: str, path: str, body: dict | None = None):
             request = urllib.request.Request(instance + path, data=data, method=method)
             request.add_header("Authorization", "Bearer " + token)
             request.add_header("Content-Type", "application/json")
+            for name, value in (headers or {}).items(): request.add_header(name, value)
             with urllib.request.urlopen(request, timeout=90) as response:
                 raw = response.read().decode("utf-8")
                 return response.status, (json.loads(raw) if raw else {})
@@ -89,18 +94,13 @@ def sf_rest(method: str, path: str, body: dict | None = None):
 def query_opp_ids(opp_ids: list[str]) -> dict[str, dict]:
     token, instance = current_session()
     ids = ",".join("'" + opp_id + "'" for opp_id in opp_ids)
-    soql = (
-        "SELECT Id, Name, Type, Non_Commissionable__c, Partner_Sales_Rep__c, Partner_Sales_Rep__r.Name, "
-        "Partner_Sales_Rep__r.IsActive FROM Opportunity "
-        f"WHERE Id IN ({ids})"
-    )
+    soql = "SELECT Id, Name, StageName, Type, Non_Commissionable__c, " + REP_FIELDS + f" FROM Opportunity WHERE Id IN ({ids})"
     rows = sf_query(soql, token, instance)
     return {row["Id"]: row for row in rows if row.get("Id")}
 
 
 def is_in_scope_opportunity(opportunity: dict) -> bool:
-    return (opportunity.get("Non_Commissionable__c") is False
-            and opportunity.get("Type") in OPPORTUNITY_TYPES)
+    return in_scope(opportunity)
 
 
 def query_team(opp_ids: list[str]) -> dict[str, set[str]]:
@@ -139,8 +139,8 @@ def valid_ids(value) -> list[str]:
     if not isinstance(value, list):
         raise ValueError("oppIds must be a list")
     ids = list(dict.fromkeys(str(item) for item in value if item))
-    if len(ids) > 50_000:
-        raise ValueError("A maximum of 50,000 Opps may be updated in one request")
+    if len(ids) > 200_000:
+        raise ValueError("A maximum of 200,000 Opps may be updated in one request")
     if any(not ID_PATTERN.fullmatch(opp_id) for opp_id in ids):
         raise ValueError("Invalid Opportunity ID in request")
     return ids
@@ -152,52 +152,28 @@ def allowed_missing_ids() -> set[str]:
     except (OSError, json.JSONDecodeError) as error:
         raise RuntimeError("Refresh the dashboard data before updating Opps.") from error
     if (data.get("config") or {}).get("scopeVersion") != SCOPE_VERSION:
-        raise RuntimeError("Refresh the dashboard data to load the commissionable Renewal, New Business, and Expansion scope.")
-    return {
-        row.get("id") for row in data.get("rows", [])
-        if row.get("id") and row.get("partnerRepActive") is True
-        and row.get("nonCommissionable") is False
-        and row.get("type") in OPPORTUNITY_TYPES
-        and (not row.get("partnerRepOnTeam") or not row.get("partnerRepOnSplit"))
-    }
+        raise RuntimeError("Refresh the dashboard data to load the commissionable 08 - Closed Opportunity scope.")
+    return {row["id"] for row in data.get("rows", [])
+            if row.get("id") and row.get("partnerId") and row.get("stage") == CLOSED_STAGE and row.get("nonCommissionable") is False
+            and row.get("type") in OPPORTUNITY_TYPES and not is_complete(row)}
 
 
-def preview_missing_ids(opp_ids: list[str]) -> dict:
-    """Recheck a requested worklist against current Salesforce state without writing."""
-    allowed = allowed_missing_ids()
-    requested = [opp_id for opp_id in opp_ids if opp_id in allowed]
-    excluded = len(opp_ids) - len(requested)
-    ids_to_add: list[str] = []
-    states: dict[str, dict] = {}
-    already_complete = inactive = changed = 0
-    chunk_size = 200
+def run_workflow(opp_ids, write=False):
+    # All write routes share the same lock and execution path.
+    with WRITE_LOCK, REFRESH_LOCK:
+        token, instance = refresh_session()
+        result = execute(opp_ids, allowed_missing_ids(), lambda soql: sf_query(soql, token, instance),
+                         sf_rest, current_split_type_id, write=write)
+        update_local_snapshot(result["states"])
+        if write:
+            audit({"type": "partner_pse_team_split_update", "requested": len(opp_ids),
+                   **{key: value for key, value in result.items() if key != "states"}})
+        return result
 
-    for start in range(0, len(requested), chunk_size):
-        batch = requested[start:start + chunk_size]
-        opportunities = query_opp_ids(batch)
-        team = query_team(batch)
-        splits = query_splits(batch)
-        for opp_id in batch:
-            opportunity = opportunities.get(opp_id)
-            if not opportunity or not is_in_scope_opportunity(opportunity) or not opportunity.get("Partner_Sales_Rep__c"):
-                changed += 1
-                continue
-            rep = opportunity.get("Partner_Sales_Rep__r") or {}
-            if rep.get("IsActive") is not True:
-                inactive += 1
-                continue
-            rep_id = opportunity["Partner_Sales_Rep__c"]
-            on_team = rep_id in team.get(opp_id, set())
-            on_split = rep_id in splits.get(opp_id, set())
-            states[opp_id] = {"partnerRepOnTeam": on_team, "partnerRepOnSplit": on_split}
-            if on_team and on_split:
-                already_complete += 1
-                continue
-            ids_to_add.append(opp_id)
 
-    update_local_snapshot(states)
-    return {"idsToAdd": ids_to_add, "alreadyComplete": already_complete, "inactive": inactive,
-            "changed": changed, "excluded": excluded, "states": states}
+def preview_missing_ids(opp_ids):
+    return run_workflow(opp_ids)
+
 
 
 def add_records(object_type: str, records: list[dict]) -> list[dict]:
@@ -222,21 +198,8 @@ def update_local_snapshot(states: dict[str, dict]) -> None:
         for row in data.get("rows", []):
             state = states.get(row.get("id"))
             if state:
-                row["partnerRepOnTeam"] = state.get("partnerRepOnTeam", row.get("partnerRepOnTeam", False))
-                row["partnerRepOnSplit"] = state.get("partnerRepOnSplit", row.get("partnerRepOnSplit", False))
-                complete = row["partnerRepOnTeam"] and row["partnerRepOnSplit"]
-                row["bucket"] = "complete" if complete else "needs_call"
-                missing = []
-                if not row["partnerRepOnTeam"]:
-                    missing.append("Opportunity Team")
-                if not row["partnerRepOnSplit"]:
-                    missing.append(f"{SPLIT_TYPE_LABEL} split")
-                row["reason"] = f"PSE is on the Opportunity Team and {SPLIT_TYPE_LABEL} split" if complete else "Active partner rep is missing from " + " and ".join(missing)
-        active_rows = [row for row in data.get("rows", [])
-                       if row.get("partnerRepActive") is True
-                       and row.get("nonCommissionable") is False
-                       and row.get("type") in OPPORTUNITY_TYPES]
-        data["summary"] = summarize(active_rows)
+                row.update(state)
+        data["summary"] = summary(data.get("rows", []))
         temp = DATA.with_suffix(".json.tmp")
         temp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         os.replace(temp, DATA)
@@ -250,109 +213,7 @@ def audit(event: dict) -> None:
 
 
 def recheck_and_write(opp_ids: list[str]) -> dict:
-    allowed = allowed_missing_ids()
-    requested = [opp_id for opp_id in opp_ids if opp_id in allowed]
-    excluded = len(opp_ids) - len(requested)
-    succeeded_ids: set[str] = set()
-    states: dict[str, dict] = {}
-    team_added = split_added = already_complete = inactive = changed = 0
-    failed_ids: set[str] = set()
-    errors: list[dict] = []
-    chunk_size = 200
-
-    for start in range(0, len(requested), chunk_size):
-        batch = requested[start:start + chunk_size]
-        try:
-            opportunities = query_opp_ids(batch)
-            team = query_team(batch)
-            splits = query_splits(batch)
-        except (RuntimeError, OSError, TimeoutError) as error:
-            failed_ids.update(batch)
-            errors.append({"message": str(error)[:500]})
-            continue
-        team_records, team_record_ids = [], []
-        split_records, split_record_ids = [], []
-        for opp_id in batch:
-            opportunity = opportunities.get(opp_id)
-            if not opportunity or not is_in_scope_opportunity(opportunity) or not opportunity.get("Partner_Sales_Rep__c"):
-                changed += 1
-                continue
-            rep = opportunity.get("Partner_Sales_Rep__r") or {}
-            if rep.get("IsActive") is not True:
-                inactive += 1
-                continue
-            rep_id = opportunity["Partner_Sales_Rep__c"]
-            on_team = rep_id in team.get(opp_id, set())
-            on_split = rep_id in splits.get(opp_id, set())
-            if on_team and on_split:
-                already_complete += 1
-                states[opp_id] = {"partnerRepOnTeam": True, "partnerRepOnSplit": True}
-                continue
-            if not on_team:
-                team_records.append({
-                    "OpportunityId": opp_id,
-                    "UserId": rep_id,
-                    "TeamMemberRole": TEAM_ROLE,
-                    "OpportunityAccessLevel": TEAM_ACCESS,
-                })
-                team_record_ids.append(opp_id)
-            if not on_split:
-                split_records.append({
-                    "OpportunityId": opp_id,
-                    "SplitOwnerId": rep_id,
-                    "SplitTypeId": current_split_type_id(),
-                    "SplitPercentage": SPLIT_PERCENTAGE,
-                })
-                split_record_ids.append(opp_id)
-
-        operation_states = {
-            opp_id: {"partnerRepOnTeam": rep_id in team.get(opp_id, set()),
-                     "partnerRepOnSplit": rep_id in splits.get(opp_id, set())}
-            for opp_id, record in opportunities.items()
-            if is_in_scope_opportunity(record)
-            and (rep_id := record.get("Partner_Sales_Rep__c"))
-            and (record.get("Partner_Sales_Rep__r") or {}).get("IsActive") is True
-        }
-        for object_type, records, record_ids, state_key in (
-            ("OpportunityTeamMember", team_records, team_record_ids, "partnerRepOnTeam"),
-            ("OpportunitySplit", split_records, split_record_ids, "partnerRepOnSplit"),
-        ):
-            if not records:
-                continue
-            try:
-                results = add_records(object_type, records)
-            except RuntimeError as error:
-                errors.append({"object": object_type, "message": str(error)[:500]})
-                failed_ids.update(record_ids)
-                continue
-            for opp_id, result in zip(record_ids, results):
-                if result.get("success"):
-                    operation_states[opp_id][state_key] = True
-                    if state_key == "partnerRepOnTeam":
-                        team_added += 1
-                    else:
-                        split_added += 1
-                else:
-                    failed_ids.add(opp_id)
-                    errors.append({"oppId": opp_id, "object": object_type,
-                                   "message": "; ".join(str(item) for item in (result.get("errors") or []))[:500]})
-
-        for opp_id, state in operation_states.items():
-            states[opp_id] = state
-            if state["partnerRepOnTeam"] and state["partnerRepOnSplit"]:
-                succeeded_ids.add(opp_id)
-            else:
-                failed_ids.add(opp_id)
-
-    update_local_snapshot(states)
-    audit({"type": "bulk_team_and_split_update", "requested": len(opp_ids), "succeeded": len(succeeded_ids),
-           "teamAdded": team_added, "splitAdded": split_added, "alreadyComplete": already_complete,
-           "inactive": inactive, "changedOrMissing": changed,
-           "excludedFromSnapshot": excluded, "failed": len(failed_ids), "errors": errors[:50]})
-    return {"succeeded": len(succeeded_ids), "succeededIds": sorted(succeeded_ids),
-            "states": states, "teamAdded": team_added, "splitAdded": split_added,
-            "alreadyComplete": already_complete, "inactive": inactive, "changed": changed,
-            "excluded": excluded, "failed": len(failed_ids), "errors": errors[:20]}
+    return run_workflow(opp_ids, write=True)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -380,7 +241,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, {"refreshEnabled": True, "writeEnabled": True,
                                         "org": SESSION["org"] or "default",
                                         "teamRole": TEAM_ROLE, "access": TEAM_ACCESS,
-                                        "splitType": SPLIT_TYPE_LABEL, "splitPercentage": SPLIT_PERCENTAGE})
+                                        "splitType": SPLIT_TYPE_LABEL, "splitPercentage": SPLIT_PERCENTAGE, "scopeVersion": SCOPE_VERSION})
         if path == "/":
             path = "/index.html"
         target = (DOCS / path.lstrip("/")).resolve()
@@ -409,8 +270,9 @@ class Handler(BaseHTTPRequestHandler):
 
         def snapshot_is_fresh() -> bool:
             try:
-                return time.time() - DATA.stat().st_mtime < AUTO_REFRESH_MAX_AGE_SECONDS
-            except OSError:
+                return (time.time() - DATA.stat().st_mtime < AUTO_REFRESH_MAX_AGE_SECONDS
+                        and json.loads(DATA.read_text()).get("config", {}).get("scopeVersion") == SCOPE_VERSION)
+            except (OSError, ValueError):
                 return False
 
         if not force and snapshot_is_fresh():
@@ -433,98 +295,26 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(400, {"error": "Invalid Opportunity ID"})
         if opp_id not in allowed_missing_ids():
             return self.send_json(409, {"error": "Opportunity is no longer in the PSE update worklist. Refresh the dashboard."})
-        opportunities = query_opp_ids([opp_id])
-        opportunity = opportunities.get(opp_id)
-        if not opportunity:
-            return self.send_json(404, {"error": "Opportunity not found or not accessible"})
-        if not is_in_scope_opportunity(opportunity):
-            return self.send_json(409, {"error": "Opportunity no longer meets the commissionable Renewal, New Business, or Expansion scope"})
-        rep = opportunity.get("Partner_Sales_Rep__r") or {}
-        rep_id = opportunity.get("Partner_Sales_Rep__c")
-        if not rep_id:
-            return self.send_json(200, {"eligible": False, "reason": "Partner Sales Rep is no longer assigned"})
-        if rep.get("IsActive") is not True:
-            return self.send_json(200, {"eligible": False, "reason": "Assigned Partner Sales Rep is inactive"})
-        team = query_team([opp_id])
-        splits = query_splits([opp_id])
-        on_team = rep_id in team.get(opp_id, set())
-        on_split = rep_id in splits.get(opp_id, set())
-        already_complete = on_team and on_split
-        update_local_snapshot({opp_id: {"partnerRepOnTeam": on_team, "partnerRepOnSplit": on_split}})
-        return self.send_json(200, {"eligible": not already_complete, "alreadyComplete": already_complete,
-                                    "oppId": opp_id, "oppName": opportunity.get("Name"),
-                                    "partnerRepId": rep_id, "partnerRepName": rep.get("Name"),
-                                    "partnerRepOnTeam": on_team, "partnerRepOnSplit": on_split,
-                                    "teamRole": TEAM_ROLE, "access": TEAM_ACCESS,
-                                    "splitType": SPLIT_TYPE_LABEL, "splitPercentage": SPLIT_PERCENTAGE})
+        result = preview_missing_ids([opp_id])
+        value = result["states"].get(opp_id, {})
+        return self.send_json(200, {**value, "eligible": opp_id in result["idsToAdd"],
+            "alreadyComplete": bool(value and is_complete(value)), "oppId": opp_id,
+            "oppName": next((row.get("name") for row in json.loads(DATA.read_text()).get("rows", []) if row.get("id") == opp_id), opp_id),
+            "reason": value.get("blockedReason") or "Opportunity no longer meets the Partner scope."})
 
     def _write_one(self, payload: dict):
         if payload.get("confirm") != "CONFIRM":
             return self.send_json(400, {"error": "confirmation required"})
-        opp_id = str(payload.get("oppId") or "")
         try:
-            if opp_id not in allowed_missing_ids():
-                return self.send_json(409, {"error": "Opportunity is no longer in the active PSE update worklist. Refresh the dashboard."})
-            opportunities = query_opp_ids([opp_id])
-            opportunity = opportunities.get(opp_id)
-            if not opportunity or not is_in_scope_opportunity(opportunity):
-                return self.send_json(409, {"error": "Opportunity no longer meets the commissionable Renewal, New Business, or Expansion scope"})
-            if not opportunity.get("Partner_Sales_Rep__c"):
-                return self.send_json(409, {"error": "Partner Sales Rep is no longer assigned"})
-            rep = opportunity.get("Partner_Sales_Rep__r") or {}
-            if rep.get("IsActive") is not True:
-                return self.send_json(409, {"error": "Partner Sales Rep is no longer active"})
-            rep_id = opportunity["Partner_Sales_Rep__c"]
-            team = query_team([opp_id])
-            splits = query_splits([opp_id])
-            on_team = rep_id in team.get(opp_id, set())
-            on_split = rep_id in splits.get(opp_id, set())
-            if on_team and on_split:
-                update_local_snapshot({opp_id: {"partnerRepOnTeam": True, "partnerRepOnSplit": True}})
-                return self.send_json(200, {"done": True, "alreadyComplete": True, "oppId": opp_id,
-                                            "partnerRepOnTeam": True, "partnerRepOnSplit": True})
-
-            results = []
-            if not on_team:
-                status, result = sf_rest("POST", f"/services/data/{API_VERSION}/sobjects/OpportunityTeamMember/", {
-                    "OpportunityId": opp_id,
-                    "UserId": rep_id,
-                    "TeamMemberRole": TEAM_ROLE,
-                    "OpportunityAccessLevel": TEAM_ACCESS,
-                })
-                success = status in (200, 201) and result.get("success", True)
-                results.append({"object": "OpportunityTeamMember", "success": success,
-                                "error": result.get("message") or str(result.get("details") or result) if not success else None})
-            if not on_split:
-                split_type_id = current_split_type_id()
-                status, result = sf_rest("POST", f"/services/data/{API_VERSION}/sobjects/OpportunitySplit/", {
-                    "OpportunityId": opp_id,
-                    "SplitOwnerId": rep_id,
-                    "SplitTypeId": split_type_id,
-                    "SplitPercentage": SPLIT_PERCENTAGE,
-                })
-                success = status in (200, 201) and result.get("success", True)
-                results.append({"object": "OpportunitySplit", "success": success,
-                                "error": result.get("message") or str(result.get("details") or result) if not success else None})
-
-            team_after = query_team([opp_id])
-            splits_after = query_splits([opp_id])
-            on_team_after = rep_id in team_after.get(opp_id, set())
-            on_split_after = rep_id in splits_after.get(opp_id, set())
-            update_local_snapshot({opp_id: {"partnerRepOnTeam": on_team_after, "partnerRepOnSplit": on_split_after}})
-            done = on_team_after and on_split_after
-            errors = [result["error"] for result in results if not result["success"]]
-            audit({"type": "single_team_and_split_update", "oppId": opp_id, "partnerRepId": rep_id,
-                   "partnerRepName": rep.get("Name"), "success": done,
-                   "partnerRepOnTeam": on_team_after, "partnerRepOnSplit": on_split_after,
-                   "results": results, "teamRole": TEAM_ROLE, "access": TEAM_ACCESS,
-                   "splitType": SPLIT_TYPE_LABEL, "splitPercentage": SPLIT_PERCENTAGE})
-            return self.send_json(200, {"done": done, "oppId": opp_id,
-                                        "partnerRepOnTeam": on_team_after,
-                                        "partnerRepOnSplit": on_split_after,
-                                        "error": "; ".join(errors) if errors else None,
-                                        "results": results})
-        except (RuntimeError, OSError, json.JSONDecodeError) as error:
+            ids = valid_ids([payload.get("oppId")])
+            if not ids: raise ValueError("Opportunity ID is required")
+            result = recheck_and_write(ids)
+            value = result["states"].get(ids[0], {})
+            return self.send_json(200, {**value, "done": bool(value and is_complete(value)),
+                "oppId": ids[0], "results": result,
+                "error": "; ".join(item.get("message", "") for item in result["errors"]) or
+                         ("Opportunity changed or is no longer in the worklist." if not value else None)})
+        except (ValueError, RuntimeError, OSError) as error:
             return self.send_json(502, {"error": str(error)})
 
     def do_POST(self):

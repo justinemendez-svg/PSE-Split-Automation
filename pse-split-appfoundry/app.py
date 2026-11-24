@@ -2,7 +2,7 @@
 
 The AppFoundry deployment keeps the latest Salesforce snapshot in Postgres.
 Refresh reads commissionable Renewal, New Business, and Expansion opportunities
-with an active Partner Sales Rep. Salesforce writes remain previewed and
+with a tagged Partner and resolves the existing PSE or Partner Owner. Salesforce writes remain previewed and
 confirmed, matching the local dashboard behavior.
 """
 
@@ -33,6 +33,12 @@ ASSET_DIR = APP_DIR.parent / "docs"
 INDEX_HTML = (ASSET_DIR / "index.html").read_text(encoding="utf-8") if (ASSET_DIR / "index.html").exists() else ""
 APP_JS = (ASSET_DIR / "app.js").read_text(encoding="utf-8") if (ASSET_DIR / "app.js").exists() else ""
 
+# Shared workflow source is embedded by build_standalone.py for single-file deployment.
+import sys
+sys.path.insert(0, str(APP_DIR.parent))
+from workflow import CLOSED_STAGE, REP_FIELDS, PARTNER_FIELD, SCOPE_VERSION, execute, in_scope, is_complete, rep_state, summary
+WRITE_LOCK = threading.Lock()
+
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(32)
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SECURE=True, SESSION_COOKIE_SAMESITE="Lax")
@@ -43,7 +49,7 @@ TEAM_ACCESS = "Read"
 SPLIT_LABEL = "Overlay"
 SPLIT_PERCENTAGE = 100
 OPPORTUNITY_TYPES = ("Renewal", "New Business", "Expansion")
-SCOPE_VERSION = 2
+
 LIGHTNING_URL = os.environ.get("SF_LIGHTNING_URL", "https://zendesk.lightning.force.com").rstrip("/")
 SF_LOGIN_URL = os.environ.get("SF_LOGIN_URL", "https://zendesk.my.salesforce.com").rstrip("/")
 SF_CLIENT_ID = os.environ.get("SF_CLIENT_ID", "")
@@ -189,7 +195,7 @@ def _token_refresh(session_id: str, saved: dict) -> dict:
     return _session_record(session_id)
 
 
-def sf_request(session_id: str, method: str, path: str, payload: dict | None = None, retry: bool = True):
+def sf_request(session_id: str, method: str, path: str, payload: dict | None = None, retry: bool = True, headers: dict | None = None):
     saved = _session_record(session_id)
     if not saved:
         raise NeedsLogin()
@@ -197,6 +203,7 @@ def sf_request(session_id: str, method: str, path: str, payload: dict | None = N
     req = urllib.request.Request(saved["instance_url"] + path, data=data, method=method)
     req.add_header("Authorization", "Bearer " + saved["access_token"])
     req.add_header("Content-Type", "application/json")
+    for name, value in (headers or {}).items(): req.add_header(name, value)
     try:
         with urllib.request.urlopen(req, timeout=120) as resp:
             raw = resp.read().decode()
@@ -205,7 +212,7 @@ def sf_request(session_id: str, method: str, path: str, payload: dict | None = N
         raw = error.read().decode(errors="replace")
         if error.code == 401 and retry:
             refreshed = _token_refresh(session_id, saved)
-            return sf_request(session_id, method, path, payload, retry=False)
+            return sf_request(session_id, method, path, payload, retry=False, headers=headers)
         try:
             details = json.loads(raw)
         except json.JSONDecodeError:
@@ -239,15 +246,12 @@ def _ids_soql(ids: list[str]) -> str:
 def _query_opps(session_id: str, ids: list[str]) -> dict[str, dict]:
     if not ids:
         return {}
-    soql = ("SELECT Id, Name, Type, Non_Commissionable__c, Partner_Sales_Rep__c, "
-            "Partner_Sales_Rep__r.Name, Partner_Sales_Rep__r.IsActive FROM Opportunity "
-            f"WHERE Id IN ({_ids_soql(ids)})")
+    soql = "SELECT Id, Name, StageName, Type, Non_Commissionable__c, " + REP_FIELDS + f" FROM Opportunity WHERE Id IN ({_ids_soql(ids)})"
     return {row["Id"]: row for row in sf_query(session_id, soql)}
 
 
 def _in_scope(opp: dict) -> bool:
-    return opp.get("Non_Commissionable__c") is False and opp.get("Type") in OPPORTUNITY_TYPES
-
+    return in_scope(opp)
 
 def _team_members(session_id: str, ids: list[str]) -> dict[str, set[str]]:
     rows = sf_query(session_id, "SELECT OpportunityId, UserId FROM OpportunityTeamMember WHERE OpportunityId IN (" + _ids_soql(ids) + ")", "team members") if ids else []
@@ -265,7 +269,7 @@ def _split_type_id(session_id: str) -> str:
 
 
 def _split_owners(session_id: str, ids: list[str], split_type_id: str) -> dict[str, set[str]]:
-    rows = sf_query(session_id, "SELECT OpportunityId, SplitOwnerId FROM OpportunitySplit WHERE OpportunityId IN (" + _ids_soql(ids) + ") AND SplitTypeId = '" + split_type_id + "'", "Overlay splits") if ids else []
+    rows = sf_query(session_id, "SELECT OpportunityId, SplitOwnerId FROM OpportunitySplit WHERE OpportunityId IN (" + _ids_soql(ids) + ")", "splits") if ids else []
     result: dict[str, set[str]] = {}
     for row in rows:
         result.setdefault(row["OpportunityId"], set()).add(row["SplitOwnerId"])
@@ -278,9 +282,7 @@ def _batches(items: list[str], size: int = 500):
 
 
 def _summary(rows: list[dict]) -> dict:
-    complete = sum(1 for row in rows if row.get("partnerRepOnTeam") and row.get("partnerRepOnSplit"))
-    return {"total": len(rows), "tagged": complete, "needsUpdate": len(rows) - complete}
-
+    return summary(rows)
 
 def _refresh_data(session_id: str, progress=None) -> dict:
     split_type_id = _split_type_id(session_id)
@@ -288,9 +290,8 @@ def _refresh_data(session_id: str, progress=None) -> dict:
     soql = (
         "SELECT Id, Name, StageName, CloseDate, Type, Amount, Non_Commissionable__c, "
         "Account.Name, Account.Owner.Name, Account_Owner_Market_Segment__c, Region__c, "
-        "Partner_Sales_Rep__c, Partner_Sales_Rep__r.Name, Partner_Sales_Rep__r.IsActive "
-        "FROM Opportunity WHERE Partner_Sales_Rep__c != null AND Non_Commissionable__c = false "
-        f"AND Type IN ({types}) AND Partner_Sales_Rep__r.IsActive = true"
+        + REP_FIELDS + f" FROM Opportunity WHERE {PARTNER_FIELD} != null AND Non_Commissionable__c = false "
+        f"AND Type IN ({types}) AND StageName = '{CLOSED_STAGE}'"
     )
     records = sf_query(session_id, soql, "eligible opportunities")
     ids = [record["Id"] for record in records if record.get("Id")]
@@ -314,16 +315,7 @@ def _refresh_data(session_id: str, progress=None) -> dict:
 
     rows = []
     for record in records:
-        rep_id = record.get("Partner_Sales_Rep__c")
-        rep = record.get("Partner_Sales_Rep__r") or {}
-        on_team = rep_id in team_by_opp.get(record["Id"], set())
-        on_split = rep_id in split_by_opp.get(record["Id"], set())
-        complete = on_team and on_split
-        missing = []
-        if not on_team:
-            missing.append("Opportunity Team")
-        if not on_split:
-            missing.append("Overlay split")
+        value = rep_state(record, team_by_opp.get(record["Id"], ()), split_by_opp.get(record["Id"], ()))
         rows.append({
             "id": record.get("Id"), "name": record.get("Name"),
             "account": (record.get("Account") or {}).get("Name"),
@@ -332,15 +324,12 @@ def _refresh_data(session_id: str, progress=None) -> dict:
             "type": record.get("Type"), "segment": record.get("Account_Owner_Market_Segment__c"),
             "region": record.get("Region__c"), "amount": record.get("Amount"),
             "nonCommissionable": record.get("Non_Commissionable__c"),
-            "partnerRepId": rep_id, "partnerRepName": rep.get("Name"), "partnerRepActive": True,
-            "partnerRepOnTeam": on_team, "partnerRepOnSplit": on_split,
-            "bucket": "complete" if complete else "needs_call",
-            "reason": "PSE is on the Opportunity Team and Overlay split" if complete else "Active partner rep is missing from " + " and ".join(missing),
+            **value,
         })
     payload = {
         "generatedAt": dt.datetime.now(dt.timezone.utc).astimezone().isoformat(timespec="seconds"),
-        "config": {"scope": "Commissionable Renewal, New Business, and Expansion opportunities",
-                   "scopeVersion": SCOPE_VERSION, "commissionableOnly": True,
+        "config": {"scope": "Commissionable 08 - Closed Renewal, New Business, and Expansion opportunities",
+                   "scopeVersion": SCOPE_VERSION, "stage": CLOSED_STAGE, "partnerField": PARTNER_FIELD, "splitCheck": "any", "commissionableOnly": True,
                    "opportunityTypes": list(OPPORTUNITY_TYPES), "splitType": SPLIT_LABEL,
                    "splitTypeId": split_type_id, "splitPercentage": SPLIT_PERCENTAGE},
         "summary": _summary(rows), "rows": rows,
@@ -362,7 +351,7 @@ def _load_snapshot() -> dict:
         row = cx.execute(text("SELECT payload FROM pse_split_snapshot WHERE id=1")).first()
     if not row:
         return {"generatedAt": None,
-                "config": {"scopeVersion": SCOPE_VERSION, "scope": "Commissionable Renewal, New Business, and Expansion opportunities"},
+                "config": {"scopeVersion": SCOPE_VERSION, "stage": CLOSED_STAGE, "partnerField": PARTNER_FIELD, "splitCheck": "any", "scope": "Commissionable 08 - Closed Renewal, New Business, and Expansion opportunities"},
                 "summary": {"total": 0, "tagged": 0, "needsUpdate": 0}, "rows": []}
     return json.loads(row[0])
 
@@ -400,16 +389,15 @@ def _eligible_ids() -> set[str]:
     if (payload.get("config") or {}).get("scopeVersion") != SCOPE_VERSION:
         return set()
     return {row["id"] for row in payload.get("rows", [])
-            if row.get("id") and row.get("partnerRepActive") is True
-            and row.get("nonCommissionable") is False and row.get("type") in OPPORTUNITY_TYPES
-            and (not row.get("partnerRepOnTeam") or not row.get("partnerRepOnSplit"))}
+            if row.get("id") and row.get("partnerId") and row.get("stage") == CLOSED_STAGE and row.get("nonCommissionable") is False
+            and row.get("type") in OPPORTUNITY_TYPES and not is_complete(row)}
 
 
 def _validate_ids(value) -> list[str]:
     if not isinstance(value, list):
         raise ValueError("oppIds must be a list")
     ids = list(dict.fromkeys(str(item) for item in value if item))
-    if not ids or len(ids) > 50000 or any(not OPP_ID_RE.fullmatch(value) for value in ids):
+    if not ids or len(ids) > 200000 or any(not OPP_ID_RE.fullmatch(value) for value in ids):
         raise ValueError("Invalid Opportunity IDs in request")
     return ids
 
@@ -420,12 +408,7 @@ def _update_snapshot_states(states: dict[str, dict]) -> None:
     payload = _load_snapshot()
     for row in payload.get("rows", []):
         value = states.get(row.get("id"))
-        if value:
-            row["partnerRepOnTeam"] = bool(value.get("partnerRepOnTeam"))
-            row["partnerRepOnSplit"] = bool(value.get("partnerRepOnSplit"))
-            complete = row["partnerRepOnTeam"] and row["partnerRepOnSplit"]
-            row["bucket"] = "complete" if complete else "needs_call"
-            row["reason"] = "PSE is on the Opportunity Team and Overlay split" if complete else "Active partner rep still needs an Opportunity Team or Overlay split update"
+        if value: row.update(value)
     payload["summary"] = _summary(payload.get("rows", []))
     _save_snapshot(payload)
 
@@ -434,138 +417,28 @@ def _team_and_splits(session_id: str, ids: list[str], split_type_id: str):
     return _team_members(session_id, ids), _split_owners(session_id, ids, split_type_id)
 
 
-def _write_one(session_id: str, opp_id: str) -> dict:
-    if opp_id not in _eligible_ids():
-        raise ValueError("Opportunity is no longer in the active PSE update worklist. Refresh first.")
-    opportunity = _query_opps(session_id, [opp_id]).get(opp_id)
-    if not opportunity or not _in_scope(opportunity):
-        raise ValueError("Opportunity no longer meets the commissionable Renewal, New Business, or Expansion scope.")
-    rep_id = opportunity.get("Partner_Sales_Rep__c")
-    rep = opportunity.get("Partner_Sales_Rep__r") or {}
-    if not rep_id or rep.get("IsActive") is not True:
-        raise ValueError("The assigned Partner Sales Rep is no longer active.")
-    split_type_id = _split_type_id(session_id)
-    team, splits = _team_and_splits(session_id, [opp_id], split_type_id)
-    on_team = rep_id in team.get(opp_id, set())
-    on_split = rep_id in splits.get(opp_id, set())
-    results = []
-    if not on_team:
-        status, result = sf_insert(session_id, "OpportunityTeamMember", {
-            "OpportunityId": opp_id, "UserId": rep_id, "TeamMemberRole": TEAM_ROLE,
-            "OpportunityAccessLevel": TEAM_ACCESS,
-        })
-        results.append({"object": "OpportunityTeamMember", "success": status in (200, 201), "error": result.get("message")})
-    if not on_split:
-        status, result = sf_insert(session_id, "OpportunitySplit", {
-            "OpportunityId": opp_id, "SplitOwnerId": rep_id, "SplitTypeId": split_type_id,
-            "SplitPercentage": SPLIT_PERCENTAGE,
-        })
-        results.append({"object": "OpportunitySplit", "success": status in (200, 201), "error": result.get("message")})
-    team_after, splits_after = _team_and_splits(session_id, [opp_id], split_type_id)
-    on_team = rep_id in team_after.get(opp_id, set())
-    on_split = rep_id in splits_after.get(opp_id, set())
-    _update_snapshot_states({opp_id: {"partnerRepOnTeam": on_team, "partnerRepOnSplit": on_split}})
-    return {"done": on_team and on_split, "oppId": opp_id, "partnerRepOnTeam": on_team,
-            "partnerRepOnSplit": on_split, "results": results}
+def _run_workflow(session_id, ids, write=False):
+    with WRITE_LOCK:
+        result = execute(ids, _eligible_ids(), lambda soql: sf_query(session_id, soql),
+                         lambda method, path, body, **kw: sf_request(session_id, method, path, body, **kw),
+                         lambda: _split_type_id(session_id), write=write)
+        _update_snapshot_states(result["states"])
+        return result
 
 
-def _preview_many(session_id: str, ids: list[str]) -> dict:
-    eligible = _eligible_ids()
-    requested = [value for value in ids if value in eligible]
-    states: dict[str, dict] = {}
-    ids_to_add = []
-    changed = inactive = already_complete = 0
-    split_type_id = _split_type_id(session_id)
-    for batch in _batches(requested, 200):
-        opportunities = _query_opps(session_id, batch)
-        team, splits = _team_and_splits(session_id, batch, split_type_id)
-        for opp_id in batch:
-            opportunity = opportunities.get(opp_id)
-            if not opportunity or not _in_scope(opportunity) or not opportunity.get("Partner_Sales_Rep__c"):
-                changed += 1
-                continue
-            rep = opportunity.get("Partner_Sales_Rep__r") or {}
-            if rep.get("IsActive") is not True:
-                inactive += 1
-                continue
-            rep_id = opportunity["Partner_Sales_Rep__c"]
-            on_team, on_split = rep_id in team.get(opp_id, set()), rep_id in splits.get(opp_id, set())
-            states[opp_id] = {"partnerRepOnTeam": on_team, "partnerRepOnSplit": on_split}
-            if on_team and on_split:
-                already_complete += 1
-            else:
-                ids_to_add.append(opp_id)
-    _update_snapshot_states(states)
-    return {"idsToAdd": ids_to_add, "states": states, "alreadyComplete": already_complete,
-            "inactive": inactive, "changed": changed, "excluded": len(ids) - len(requested)}
+def _write_one(session_id, opp_id):
+    result = _run_workflow(session_id, [opp_id], write=True)
+    value = result["states"].get(opp_id, {})
+    return {**value, "done": bool(value and is_complete(value)), "oppId": opp_id,
+            "error": "; ".join(item.get("message", "") for item in result["errors"]), "results": result}
 
 
-def _bulk_write(session_id: str, ids: list[str]) -> dict:
-    eligible = _eligible_ids()
-    requested = [value for value in ids if value in eligible]
-    excluded = len(ids) - len(requested)
-    split_type_id = _split_type_id(session_id)
-    states: dict[str, dict] = {}
-    succeeded_ids, failed_ids = set(), set()
-    team_added = split_added = already_complete = inactive = changed = 0
-    for batch in _batches(requested, 200):
-        opportunities = _query_opps(session_id, batch)
-        team, splits = _team_and_splits(session_id, batch, split_type_id)
-        team_records, team_ids, split_records, split_ids = [], [], [], []
-        batch_states = {}
-        for opp_id in batch:
-            opportunity = opportunities.get(opp_id)
-            if not opportunity or not _in_scope(opportunity) or not opportunity.get("Partner_Sales_Rep__c"):
-                changed += 1
-                continue
-            rep = opportunity.get("Partner_Sales_Rep__r") or {}
-            if rep.get("IsActive") is not True:
-                inactive += 1
-                continue
-            rep_id = opportunity["Partner_Sales_Rep__c"]
-            on_team, on_split = rep_id in team.get(opp_id, set()), rep_id in splits.get(opp_id, set())
-            batch_states[opp_id] = {"partnerRepOnTeam": on_team, "partnerRepOnSplit": on_split}
-            if on_team and on_split:
-                already_complete += 1
-                continue
-            if not on_team:
-                team_records.append({"OpportunityId": opp_id, "UserId": rep_id,
-                                     "TeamMemberRole": TEAM_ROLE, "OpportunityAccessLevel": TEAM_ACCESS})
-                team_ids.append(opp_id)
-            if not on_split:
-                split_records.append({"OpportunityId": opp_id, "SplitOwnerId": rep_id,
-                                      "SplitTypeId": split_type_id, "SplitPercentage": SPLIT_PERCENTAGE})
-                split_ids.append(opp_id)
-        for object_name, records, record_ids, state_key in (
-            ("OpportunityTeamMember", team_records, team_ids, "partnerRepOnTeam"),
-            ("OpportunitySplit", split_records, split_ids, "partnerRepOnSplit"),
-        ):
-            for start in range(0, len(records), 200):
-                chunk = records[start:start + 200]
-                chunk_ids = record_ids[start:start + 200]
-                status, result = sf_request(session_id, "POST", f"/services/data/{API_VERSION}/composite/sobjects", {
-                    "allOrNone": False,
-                    "records": [{"attributes": {"type": object_name}, **record} for record in chunk],
-                })
-                responses = result if isinstance(result, list) else []
-                for opp_id, response in zip(chunk_ids, responses):
-                    if response.get("success"):
-                        batch_states[opp_id][state_key] = True
-                        if state_key == "partnerRepOnTeam": team_added += 1
-                        else: split_added += 1
-                    else:
-                        failed_ids.add(opp_id)
-                if status not in (200, 201):
-                    failed_ids.update(chunk_ids)
-        for opp_id, status in batch_states.items():
-            states[opp_id] = status
-            if status["partnerRepOnTeam"] and status["partnerRepOnSplit"]: succeeded_ids.add(opp_id)
-            else: failed_ids.add(opp_id)
-        _update_snapshot_states(batch_states)
-    return {"succeeded": len(succeeded_ids), "states": states, "teamAdded": team_added,
-            "splitAdded": split_added, "alreadyComplete": already_complete,
-            "inactive": inactive, "changed": changed, "excluded": excluded,
-            "failed": len(failed_ids)}
+def _preview_many(session_id, ids):
+    return _run_workflow(session_id, ids)
+
+
+def _bulk_write(session_id, ids):
+    return _run_workflow(session_id, ids, write=True)
 
 
 def _audit(event: dict) -> None:
@@ -687,17 +560,12 @@ def preview_one():
     if not OPP_ID_RE.fullmatch(opp_id): return _json_error("Invalid Opportunity ID")
     if opp_id not in _eligible_ids(): return _json_error("Opportunity is no longer in the PSE update worklist. Refresh first.", 409)
     try:
-        opp = _query_opps(sid, [opp_id]).get(opp_id)
-        if not opp or not _in_scope(opp): return _json_error("Opportunity no longer meets the commissionable type scope.", 409)
-        rep_id, rep = opp.get("Partner_Sales_Rep__c"), opp.get("Partner_Sales_Rep__r") or {}
-        if not rep_id or rep.get("IsActive") is not True: return _json_error("Assigned Partner Sales Rep is no longer active.", 409)
-        split_type_id = _split_type_id(sid)
-        team, splits = _team_and_splits(sid, [opp_id], split_type_id)
-        on_team = rep_id in team.get(opp_id, set())
-        on_split = rep_id in splits.get(opp_id, set())
-        return jsonify({"eligible": not (on_team and on_split), "alreadyComplete": on_team and on_split,
-                        "oppId": opp_id, "oppName": opp.get("Name"), "partnerRepName": rep.get("Name"),
-                        "partnerRepOnTeam": on_team, "partnerRepOnSplit": on_split})
+        result = _preview_many(sid, [opp_id])
+        value = result["states"].get(opp_id, {})
+        return jsonify({**value, "eligible": opp_id in result["idsToAdd"],
+                        "alreadyComplete": bool(value and is_complete(value)), "oppId": opp_id,
+                        "oppName": next((row.get("name") for row in _load_snapshot().get("rows", []) if row.get("id") == opp_id), opp_id),
+                        "reason": value.get("blockedReason") or "Opportunity no longer meets the Partner scope."})
     except NeedsLogin:
         return jsonify({"needsLogin": True, "error": "Salesforce login expired."}), 401
     except Exception as exc:

@@ -1,4 +1,4 @@
-/* PSE Split Automation — active PSEs missing from Opportunity Teams. */
+/* Partner → PSE field → Opportunity Team → Opportunity Splits. */
 const SF_LIGHTNING_URL = "https://zendesk.lightning.force.com";
 const TEAM_ROLE = "Partner Account Executive";
 const SPLIT_TYPE = "Overlay";
@@ -6,11 +6,12 @@ const SPLIT_PERCENTAGE = 100;
 const PAGE_SIZE = 100;
 const AUTO_REFRESH_MAX_AGE_MS = 30 * 60 * 1000;
 const OPPORTUNITY_TYPES = ["Renewal", "New Business", "Expansion"];
-const SCOPE_VERSION = 2;
+const SCOPE_VERSION = 4;
+const CLOSED_STAGE = "08 - Closed";
 const state = {
-  rows: [], summary: {}, type: new Set(), segment: new Set(), region: new Set(),
-  filterOptions: { type: OPPORTUNITY_TYPES, segment: [], region: [] }, query: "",
-  sortKey: "closeDate", sortDir: -1, updatePage: 1,
+  rows: [], rowsById: new Map(), summary: {}, type: new Set(), segment: new Set(), region: new Set(), pseStatus: new Set(), fiscalQuarter: new Set(),
+  filterOptions: { type: OPPORTUNITY_TYPES, segment: [], region: [], pseStatus: [], fiscalQuarter: [] }, query: "",
+  sortKey: "closeDate", sortDir: -1, updatePage: 1, pseCategory: "all",
   writeApi: { enabled: false, refreshEnabled: false, org: null, authMode: "local", loggedIn: true },
 };
 const $ = (id) => document.getElementById(id);
@@ -26,6 +27,18 @@ function fmtDate(value) {
   const date = new Date(value + "T00:00:00");
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
 }
+function fiscalQuarterFromDate(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ""));
+  if (!match) return "Close date unavailable";
+  const [, yearText, monthText, dayText] = match;
+  const year = Number(yearText), month = Number(monthText), day = Number(dayText);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return "Close date unavailable";
+  const fiscalYear = month >= 2 ? year + 1 : year;
+  const quarter = Math.floor(((month + 10) % 12) / 3) + 1;
+  return "FY" + fiscalYear + " Q" + quarter;
+}
+
 function fmtCount(value) { return Number(value || 0).toLocaleString("en-US"); }
 function detailsLine(row) {
   return [row.id, row.stage, fmtDate(row.closeDate), row.type].filter(Boolean).join(" · ");
@@ -52,7 +65,7 @@ async function load() {
     hydrate(data);
     await detectApi();
     const generatedAt = Date.parse(data.generatedAt || "");
-    const stale = !Number.isFinite(generatedAt) || Date.now() - generatedAt >= AUTO_REFRESH_MAX_AGE_MS;
+    const stale = (data.config || {}).scopeVersion !== SCOPE_VERSION || !Number.isFinite(generatedAt) || Date.now() - generatedAt >= AUTO_REFRESH_MAX_AGE_MS;
     if (stale && state.writeApi.refreshEnabled && state.writeApi.loggedIn) void refreshData(false);
   } catch (error) {
     await detectApi();
@@ -76,7 +89,7 @@ function renderFilter(id, key, values) {
   const label = component.dataset.filterLabel;
   const button = $(id + "Button");
   button.textContent = !choices.size || choices.size === values.length
-    ? "All " + label
+    ? component.dataset.filterTitle
     : choices.size === 1 ? [...choices][0] : choices.size + " " + label + " selected";
   const menu = $(id + "Menu");
   menu.innerHTML = values.map((value) =>
@@ -90,18 +103,19 @@ function hydrate(data) {
   wire();
   if ((data.config || {}).scopeVersion !== SCOPE_VERSION) {
     state.rows = [];
+    $("dashboard").classList.add("hidden");
     const status = $("status");
-    status.className = "status err";
-    status.textContent = "This snapshot predates the commissionable opportunity scope. Run `python3 refresh.py --org prod` or use Refresh data locally to load the current Renewal, New Business, and Expansion worklist.";
+    status.className = "status";
+    status.textContent = "The closed Opportunity flow (08 - Closed) needs a fresh Salesforce snapshot. Refreshing will load the current worklist.";
     return;
   }
-  state.rows = data.rows || [];
+  state.rows = (data.rows || []).map((row) => ({ ...row, fiscalQuarter: fiscalQuarterFromDate(row.closeDate) }));
+  state.rowsById = new Map(state.rows.map((row) => [row.id, row]));
   state.summary = data.summary || {};
-  $("cTotal").textContent = fmtCount(state.summary.total ?? state.rows.length);
-  $("cTagged").textContent = fmtCount(state.summary.tagged);
-  $("cNeedsUpdate").textContent = fmtCount(state.summary.needsUpdate);
   const generated = data.generatedAt ? new Date(data.generatedAt) : null;
   $("who").textContent = generated ? "Refreshed " + generated.toLocaleString() : "";
+  renderFilter("pseStatusFilter", "pseStatus", ["Active", "Inactive", ...(state.rows.some((row) => row.partnerRepActive !== true && row.partnerRepActive !== false) ? ["Status unavailable"] : [])]);
+  renderFilter("quarterFilter", "fiscalQuarter", [...new Set(state.rows.map((row) => row.fiscalQuarter))].sort((a, b) => b.localeCompare(a)));
   renderFilter("typeFilter", "type", OPPORTUNITY_TYPES);
   renderFilter("segmentFilter", "segment", [...new Set(state.rows.map((row) => row.segment).filter(Boolean))].sort());
   renderFilter("regionFilter", "region", [...new Set(state.rows.map((row) => row.region).filter(Boolean))].sort());
@@ -126,19 +140,31 @@ async function detectApi() {
   } catch (_) { /* Static hosting has no local Salesforce API. */ }
 }
 
-function filteredRows() {
-  let rows = state.rows.filter((row) => row.nonCommissionable === false &&
-    OPPORTUNITY_TYPES.includes(row.type) && (!row.partnerRepOnTeam || !row.partnerRepOnSplit));
-  ["type", "segment", "region"].forEach((key) => {
+function pseStatus(row) { return row.partnerRepActive === true ? "Active" : row.partnerRepActive === false ? "Inactive" : "Status unavailable"; }
+
+function rowComplete(row) { return !row.partnerRepNeedsPopulate && row.partnerRepOnTeam && row.partnerRepOnSplit; }
+
+function matchesCategory(row, category) {
+  const missingMembership = !row.partnerRepOnTeam || !row.partnerRepOnSplit;
+  if (category === "tagged") return !row.partnerRepNeedsPopulate && missingMembership;
+  if (category === "untagged") return !!row.partnerRepNeedsPopulate && missingMembership;
+  return true;
+}
+
+function filteredRows(category = state.pseCategory) {
+  let rows = state.rows.filter((row) => row.nonCommissionable === false && row.stage === CLOSED_STAGE &&
+    OPPORTUNITY_TYPES.includes(row.type) && row.partnerId && !rowComplete(row));
+  ["type", "segment", "region", "pseStatus", "fiscalQuarter"].forEach((key) => {
     const selected = state[key];
     const options = state.filterOptions[key];
-    if (selected.size && selected.size < options.length) rows = rows.filter((row) => selected.has(row[key]));
+    if (selected.size && selected.size < options.length) rows = rows.filter((row) => selected.has(key === "pseStatus" ? pseStatus(row) : row[key]));
   });
   if (state.query) {
     const q = state.query;
     rows = rows.filter((row) => [row.name, row.account, row.id, row.accountOwner, row.partnerRepName]
       .some((value) => String(value == null ? "" : value).toLowerCase().includes(q)));
   }
+  rows = rows.filter((row) => matchesCategory(row, category));
   const key = state.sortKey;
   return [...rows].sort((a, b) => {
     const av = a[key] == null ? "" : a[key];
@@ -151,32 +177,41 @@ function filteredRows() {
 function opportunityCard(row) {
   const href = SF_LIGHTNING_URL + "/lightning/r/Opportunity/" + encodeURIComponent(row.id) + "/view";
   const button = state.writeApi.enabled
-    ? '<button class="btn-update" data-update="' + esc(row.id) + '">Update in Salesforce →</button>'
+    ? '<button class="btn-update" data-update="' + esc(row.id) + '"' + (row.blockedReason ? ' disabled' : '') + '>Update in Salesforce →</button>'
     : '<a class="btn-update" href="' + esc(href) + '" target="_blank" rel="noopener">Open in Salesforce →</a>';
   const teamAlready = row.partnerRepOnTeam
     ? '<div class="also">Already on the Opportunity Team — no change needed.</div>' : '';
   const splitAlready = row.partnerRepOnSplit
-    ? '<div class="also">Overlay split already set — no split change needed.</div>' : '';
+    ? '<div class="also">Rep already on Opportunity Splits — existing entry preserved.</div>' : '';
+  const userStatus = row.partnerRepActive === true ? 'Active' : row.partnerRepActive === false ? 'Inactive' : 'Status unavailable';
   return '<article class="action-card needs-update" data-card="' + esc(row.id) + '">' +
     '<div class="action-head"><div class="head-main">' +
     '<div class="opp-title"><a href="' + esc(href) + '" target="_blank" rel="noopener">' + esc(row.name || "Unnamed Opportunity") + '</a></div>' +
     '<div class="details-line">' + esc(detailsLine(row)) + '</div>' +
     '<div class="details-line account-name">' + esc(accountLine(row)) + '</div>' +
-    '<div class="pse-tag"><b>PSE Tagged</b><span class="pse-name">' + esc(row.partnerRepName || "—") + '</span><span class="pill">Active</span></div>' +
+    '<div class="details-line">Partner: ' + esc(row.partnerName || "—") + ' · Partner Owner: ' + esc(row.partnerOwnerName || "—") + '</div>' +
+    '<div class="pse-tag"><b>' + (row.partnerRepNeedsPopulate ? 'PSE to populate' : 'PSE Tagged') + '</b><span class="pse-name">' + esc(row.partnerRepName || "—") + '</span><span class="pill' + (row.partnerRepActive !== true ? ' warn' : '') + '">' + userStatus + '</span></div>' +
+    (row.blockedReason ? '<div class="msg err">' + esc(row.blockedReason) + '</div>' : '') +
     '<div class="msg" data-msg="' + esc(row.id) + '"></div></div>' + button + '</div>' +
     '<div class="action-steps">' +
-      '<section class="step"><div class="step-title">1 · Add Opportunity Team Member</div>' +
+      '<section class="step"><div class="step-title">1 · Partner Sales Rep field</div>' +
+        '<div class="step-path">' + (row.partnerRepNeedsPopulate ? 'Populate from the tagged Partner’s Owner' : 'Preserve the existing PSE') + '</div>' +
+        '<table class="step-values"><tbody><tr><td>PSE</td><td>' + esc(row.partnerRepName) + '</td></tr><tr><td>Action</td><td>' +
+        (row.partnerRepNeedsPopulate ? 'Populate blank field' : 'No field change') + '</td></tr></tbody></table></section>' +
+      '<section class="step"><div class="step-title">2 · Check Opportunity Team</div>' +
         '<div class="step-path">Opportunity → Opportunity Team → Add Members</div>' +
         '<table class="step-values"><tbody>' +
           '<tr><td>User</td><td>' + esc(row.partnerRepName || "—") + '</td></tr>' +
           '<tr><td>Team Role</td><td>' + esc(TEAM_ROLE) + '</td></tr>' +
           '<tr><td>Opportunity Access</td><td>Read Only</td></tr>' +
         '</tbody></table>' + teamAlready + '</section>' +
-      '<section class="step"><div class="step-title">2 · Add Overlay Split</div>' +
+      '<section class="step"><div class="step-title">3 · Check Opportunity Splits</div>' +
         '<div class="step-path">Opportunity → Opportunity Splits → Edit Splits</div>' +
         '<table class="step-values"><tbody>' +
           '<tr><td>Split Owner</td><td>' + esc(row.partnerRepName || "—") + '</td></tr>' +
           '<tr><td>Split Type</td><td>' + esc(SPLIT_TYPE) + '</td></tr>' +
+          '<tr><td>Team Role</td><td>' + esc(TEAM_ROLE) + '</td></tr>' +
+          '<tr><td>Percent</td><td>100.00%</td></tr>' +
         '</tbody></table>' + splitAlready + '</section>' +
     '</div></article>';
 }
@@ -187,7 +222,21 @@ function wireCardUpdates(containerId) {
 }
 
 function renderUpdate() {
-  const rows = filteredRows();
+  const allRows = filteredRows("all");
+  const rows = allRows.filter((row) => matchesCategory(row, state.pseCategory));
+  $("cWithPse").textContent = fmtCount(allRows.filter((row) => matchesCategory(row, "tagged")).length);
+  $("cWithoutPse").textContent = fmtCount(allRows.filter((row) => matchesCategory(row, "untagged")).length);
+  $("cNeedsUpdate").textContent = fmtCount(allRows.length);
+  document.querySelectorAll("[data-pse-category]").forEach((button) => {
+    const selected = button.dataset.pseCategory === state.pseCategory;
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+  $("categoryLabel").textContent = {
+    all: "Showing all Opportunities to update",
+    tagged: "Showing Partner Opportunities with a tagged PSE · missing Team or Split",
+    untagged: "Showing Partner Opportunities without a tagged PSE · missing Team or Split",
+  }[state.pseCategory];
   const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   state.updatePage = Math.min(state.updatePage, pageCount);
   const start = (state.updatePage - 1) * PAGE_SIZE;
@@ -197,7 +246,7 @@ function renderUpdate() {
   $("actionList").innerHTML = rows.slice(start, start + PAGE_SIZE).map((row) => opportunityCard(row)).join("");
   wireCardUpdates("actionList");
   $("actionPageInfo").textContent = rows.length ? `Page ${state.updatePage} of ${pageCount}` : "";
-  $("filterCount").textContent = rows.length.toLocaleString() + " PSEs to update";
+  $("filterCount").textContent = fmtCount(rows.length) + " Opportunities to update";
   $("actionPrev").disabled = state.updatePage <= 1;
   $("actionNext").disabled = state.updatePage >= pageCount;
   $("actionEmpty").classList.toggle("hidden", rows.length > 0);
@@ -239,23 +288,15 @@ function ensureWriteLogin() {
   });
 }
 
-function setRowState(oppId, onTeam, onSplit) {
-  const row = state.rows.find((item) => item.id === oppId);
+function setRowState(oppId, value) {
+  const row = state.rowsById.get(oppId);
   if (!row) return;
-  const wasComplete = row.partnerRepOnTeam && row.partnerRepOnSplit;
-  row.partnerRepOnTeam = !!onTeam;
-  row.partnerRepOnSplit = !!onSplit;
-  const isComplete = row.partnerRepOnTeam && row.partnerRepOnSplit;
-  row.bucket = isComplete ? "complete" : "needs_call";
-  if (!wasComplete && isComplete) {
-    state.summary.tagged = (state.summary.tagged || 0) + 1;
-    state.summary.needsUpdate = Math.max(0, (state.summary.needsUpdate || 0) - 1);
-  } else if (wasComplete && !isComplete) {
-    state.summary.tagged = Math.max(0, (state.summary.tagged || 0) - 1);
-    state.summary.needsUpdate = (state.summary.needsUpdate || 0) + 1;
-  }
-  $("cTagged").textContent = fmtCount(state.summary.tagged);
-  $("cNeedsUpdate").textContent = fmtCount(state.summary.needsUpdate);
+  const wasComplete = !!rowComplete(row);
+  Object.assign(row, value);
+  const change = Number(!!rowComplete(row)) - Number(wasComplete);
+  state.summary.tagged = (state.summary.tagged || 0) + change;
+  state.summary.needsUpdate = (state.summary.needsUpdate || 0) - change;
+
 }
 
 async function updateOne(oppId, button) {
@@ -267,20 +308,21 @@ async function updateOne(oppId, button) {
     if (!(await ensureWriteLogin())) throw new Error("Salesforce login is required before updating.");
     const preview = await postJson("/api/preview", { oppId });
     if (preview.alreadyComplete) {
-      setRowState(oppId, true, true); renderUpdate(); return;
+      setRowState(oppId, preview); renderUpdate(); return;
     }
     if (!preview.eligible) throw new Error(preview.reason || "This PSE is no longer eligible.");
     const okay = window.confirm(
-      "Update the Opportunity Team and Opportunity Split for:\n\n" + preview.oppName +
+      "Apply the Partner → PSE → Team → Splits process for:\n\n" + preview.oppName +
       "\n\nPSE: " + preview.partnerRepName +
+      "\nPSE field: " + (preview.partnerRepNeedsPopulate ? "Populate from Partner Owner" : "Keep existing value") +
       "\nTeam role: " + TEAM_ROLE + " (Opportunity Access: Read Only)" +
       "\nSplit: " + SPLIT_PERCENTAGE + "% " + SPLIT_TYPE +
-      "\nSalesforce org: " + state.writeApi.org + "\n\nOnly missing entries will be added. Proceed?"
+      "\nSalesforce org: " + state.writeApi.org + "\n\nOnly blank PSE fields and missing Team/Split entries are added. Existing entries are preserved. Proceed?"
     );
     if (!okay) { message.textContent = "Cancelled — no Salesforce change was made."; button.disabled = false; return; }
     message.textContent = "Updating Salesforce…";
     const result = await postJson("/api/write", { oppId, confirm: "CONFIRM" });
-    setRowState(oppId, result.partnerRepOnTeam, result.partnerRepOnSplit);
+    setRowState(oppId, result);
     if (!result.done) { renderUpdate(); throw new Error(result.error || "Salesforce did not confirm both the team and split updates."); }
     renderUpdate();
   } catch (error) {
@@ -305,28 +347,28 @@ async function updateAll() {
     const preview = await postJson("/api/preview-all", { oppIds: ids });
     if (!preview.idsToAdd.length) {
       Object.entries(preview.states || {}).forEach(([id, status]) =>
-        setRowState(id, status.partnerRepOnTeam, status.partnerRepOnSplit));
+        setRowState(id, status));
       renderUpdate();
-      message.textContent = "No updates needed — the active PSEs are already on the team and Overlay split.";
+      message.textContent = "No eligible updates remain. The records are complete, changed scope, or have an unavailable Partner Owner. Refresh for current status.";
       return;
     }
     Object.entries(preview.states || {}).forEach(([id, status]) =>
-      setRowState(id, status.partnerRepOnTeam, status.partnerRepOnSplit));
+      setRowState(id, status));
     renderUpdate();
     const okay = window.confirm(
       "Update " + preview.idsToAdd.length.toLocaleString() + " Opportunities in " + state.writeApi.org +
-      "?\n\nFor each Opportunity, add its currently tagged active PSE to the Opportunity Team (" + TEAM_ROLE + ", Read Only access) and create a " +
-      SPLIT_PERCENTAGE + "% " + SPLIT_TYPE + " Opportunity Split where missing. Existing entries are kept without duplicates.\n\nThis uses the current filters and rechecks each assigned rep before writing."
+      "?\n\nKeep the existing PSE. If blank, populate it from the tagged Partner’s Owner. Then add the PSE to the Opportunity Team (" + TEAM_ROLE + ", Read Only) if missing, followed by a 100% Overlay Split (" + TEAM_ROLE + ") if the rep has no existing Split.\n\nExisting field values and Team/Split entries are preserved. This applies to all results across all pages using your current filters and rechecks Salesforce before each stage."
     );
     if (!okay) { message.textContent = "Cancelled — no Salesforce changes were made."; button.disabled = false; return; }
     message.textContent = "Updating Salesforce… this may take several minutes.";
     const result = await postJson("/api/write-all", { oppIds: preview.idsToAdd, confirm: "CONFIRM" });
     Object.entries(result.states || {}).forEach(([id, status]) =>
-      setRowState(id, status.partnerRepOnTeam, status.partnerRepOnSplit));
+      setRowState(id, status));
     message.className = result.failed ? "msg err" : "msg ok";
-    message.textContent = fmtCount(result.succeeded) + " fully updated · " + fmtCount(result.teamAdded) + " team adds · " +
+    message.textContent = fmtCount(result.succeeded) + " fully updated · " + fmtCount(result.fieldPopulated) + " PSE fields populated · " + fmtCount(result.teamAdded) + " team adds · " +
       fmtCount(result.splitAdded) + " split adds" + (result.failed ? " · " + fmtCount(result.failed) + " incomplete" : "") +
       ((result.inactive || result.changed || result.excluded) ? " · " + fmtCount((result.inactive || 0) + (result.changed || 0) + (result.excluded || 0)) + " skipped" : "");
+    if ((result.errors || []).length) message.textContent += " · " + result.errors.map((item) => (item.oppId ? item.oppId + ": " : "") + item.message).join("; ");
     render();
   } catch (error) {
     if (error.message.toLowerCase().includes("salesforce login")) state.writeApi.loggedIn = false;
@@ -370,7 +412,7 @@ async function refreshData(force = true) {
     message.className = "sub ok";
     message.textContent = result.skipped
       ? "Showing the latest Salesforce data · refreshed within the last 30 minutes"
-      : "Refreshed · " + fmtCount((result.summary || state.summary).total) + " in-scope active PSE Opps";
+      : "Refreshed · " + fmtCount((result.summary || state.summary).total) + " in-scope Partner Opportunities";
   } catch (error) {
     if (error.message.toLowerCase().includes("salesforce session expired")) state.writeApi.loggedIn = false;
     message.className = "sub err"; message.textContent = "Refresh failed: " + error.message;
@@ -380,7 +422,7 @@ async function refreshData(force = true) {
 function csvCell(value) { return '"' + String(value == null ? "" : value).replace(/"/g, '""') + '"'; }
 function exportCsv() {
   const rows = filteredRows();
-  const columns = ["id", "name", "stage", "closeDate", "type", "account", "accountOwner", "segment", "region", "partnerRepName", "partnerRepId", "partnerRepOnTeam", "partnerRepOnSplit"];
+  const columns = ["id", "name", "stage", "closeDate", "fiscalQuarter", "type", "account", "accountOwner", "segment", "region", "partnerName", "partnerOwnerName", "partnerRepName", "partnerRepId", "partnerRepNeedsPopulate", "partnerRepActive", "partnerRepOnTeam", "partnerRepOnSplit"];
   const lines = [columns.join(","), ...rows.map((row) => columns.map((key) => csvCell(row[key])).join(","))];
   const blob = new Blob(["\ufeff" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob); const anchor = document.createElement("a");
@@ -390,11 +432,32 @@ function exportCsv() {
 function wire() {
   if (wired) return;
   wired = true;
+  document.querySelectorAll("[data-pse-category]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.pseCategory = button.dataset.pseCategory;
+      state.updatePage = 1;
+      $("bulkMsg").textContent = "";
+      renderUpdate();
+    });
+  });
+  const process = $("processFlow");
+  let priorOverflow = "";
+  $("processFlowBtn").addEventListener("click", () => {
+    priorOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    process.showModal();
+    process.scrollTop = 0;
+  });
+  $("closeProcessFlow").addEventListener("click", () => process.close());
+  process.addEventListener("close", () => {
+    document.body.style.overflow = priorOverflow;
+    $("processFlowBtn").focus({ preventScroll: true });
+  });
   $("search").addEventListener("input", (event) => {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(() => { state.query = event.target.value.trim().toLowerCase(); state.updatePage = 1; render(); }, 160);
   });
-  [["typeFilter", "type"], ["segmentFilter", "segment"], ["regionFilter", "region"]].forEach(([id, key]) => {
+  [["quarterFilter", "fiscalQuarter"], ["typeFilter", "type"], ["segmentFilter", "segment"], ["regionFilter", "region"], ["pseStatusFilter", "pseStatus"]].forEach(([id, key]) => {
     const component = $(id);
     const button = $(id + "Button");
     button.addEventListener("click", () => {
