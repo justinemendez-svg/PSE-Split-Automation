@@ -30,6 +30,4 @@ Use the clickable boxes to filter tagged or blank PSE worklists. **Fiscal Quarte
 
 The Salesforce snapshot and write audit stay local and are excluded from Git.
 
-## Current workflow
-
-See **Process Flow** at the top of the dashboard for the full guide. Partner means `Referring_Partner__c` in this org. Existing PSE values are preserved; blank PSE values use the tagged Partner’s Owner. Missing Team members use Partner Account Executive / Read Only. If the rep has no existing Split of any type, create an Overlay split with Partner Account Executive and 100.00%. Refresh is read-only; updates apply after confirmation.
+For the current field mapping and complete workflow, see [README.md](README.md#scope-and-workflow) or **Process Flow** in the dashboard.

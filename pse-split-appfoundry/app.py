@@ -235,23 +235,9 @@ def sf_query(session_id: str, soql: str, label: str = "records") -> list[dict]:
     return records
 
 
-def sf_insert(session_id: str, object_name: str, record: dict) -> tuple[int, dict]:
-    return sf_request(session_id, "POST", f"/services/data/{API_VERSION}/sobjects/{object_name}/", record)
-
-
 def _ids_soql(ids: list[str]) -> str:
     return ",".join("'" + value + "'" for value in ids)
 
-
-def _query_opps(session_id: str, ids: list[str]) -> dict[str, dict]:
-    if not ids:
-        return {}
-    soql = "SELECT Id, Name, StageName, Type, Non_Commissionable__c, " + REP_FIELDS + f" FROM Opportunity WHERE Id IN ({_ids_soql(ids)})"
-    return {row["Id"]: row for row in sf_query(session_id, soql)}
-
-
-def _in_scope(opp: dict) -> bool:
-    return in_scope(opp)
 
 def _team_members(session_id: str, ids: list[str]) -> dict[str, set[str]]:
     rows = sf_query(session_id, "SELECT OpportunityId, UserId FROM OpportunityTeamMember WHERE OpportunityId IN (" + _ids_soql(ids) + ")", "team members") if ids else []
@@ -411,10 +397,6 @@ def _update_snapshot_states(states: dict[str, dict]) -> None:
         if value: row.update(value)
     payload["summary"] = _summary(payload.get("rows", []))
     _save_snapshot(payload)
-
-
-def _team_and_splits(session_id: str, ids: list[str], split_type_id: str):
-    return _team_members(session_id, ids), _split_owners(session_id, ids, split_type_id)
 
 
 def _run_workflow(session_id, ids, write=False):

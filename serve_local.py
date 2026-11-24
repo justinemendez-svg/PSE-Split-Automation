@@ -91,28 +91,6 @@ def sf_rest(method: str, path: str, body: dict | None = None, headers: dict | No
         return error.code, {"message": message, "details": details}
 
 
-def query_opp_ids(opp_ids: list[str]) -> dict[str, dict]:
-    token, instance = current_session()
-    ids = ",".join("'" + opp_id + "'" for opp_id in opp_ids)
-    soql = "SELECT Id, Name, StageName, Type, Non_Commissionable__c, " + REP_FIELDS + f" FROM Opportunity WHERE Id IN ({ids})"
-    rows = sf_query(soql, token, instance)
-    return {row["Id"]: row for row in rows if row.get("Id")}
-
-
-def is_in_scope_opportunity(opportunity: dict) -> bool:
-    return in_scope(opportunity)
-
-
-def query_team(opp_ids: list[str]) -> dict[str, set[str]]:
-    token, instance = current_session()
-    rows = sf_query(build_team_soql(opp_ids), token, instance)
-    members: dict[str, set[str]] = {}
-    for row in rows:
-        if row.get("OpportunityId") and row.get("UserId"):
-            members.setdefault(row["OpportunityId"], set()).add(row["UserId"])
-    return members
-
-
 def current_split_type_id() -> str:
     with SESSION_LOCK:
         split_type_id = SESSION.get("splitTypeId")
@@ -123,16 +101,6 @@ def current_split_type_id() -> str:
     with SESSION_LOCK:
         SESSION["splitTypeId"] = split_type_id
     return split_type_id
-
-
-def query_splits(opp_ids: list[str]) -> dict[str, set[str]]:
-    token, instance = current_session()
-    rows = sf_query(build_split_soql(opp_ids, current_split_type_id()), token, instance, "Overlay splits")
-    owners: dict[str, set[str]] = {}
-    for row in rows:
-        if row.get("OpportunityId") and row.get("SplitOwnerId"):
-            owners.setdefault(row["OpportunityId"], set()).add(row["SplitOwnerId"])
-    return owners
 
 
 def valid_ids(value) -> list[str]:
@@ -173,21 +141,6 @@ def run_workflow(opp_ids, write=False):
 
 def preview_missing_ids(opp_ids):
     return run_workflow(opp_ids)
-
-
-
-def add_records(object_type: str, records: list[dict]) -> list[dict]:
-    if not records:
-        return []
-    status, result = sf_rest("POST", f"/services/data/{API_VERSION}/composite/sobjects", {
-        "allOrNone": False,
-        "records": [{"attributes": {"type": object_type}, **record} for record in records],
-    })
-    if status not in (200, 201):
-        raise RuntimeError(result.get("message") or f"Salesforce returned HTTP {status}")
-    if not isinstance(result, list) or len(result) != len(records):
-        raise RuntimeError("Salesforce returned an incomplete composite update response")
-    return result
 
 
 def update_local_snapshot(states: dict[str, dict]) -> None:
@@ -395,7 +348,7 @@ def main():
     print("PSE Split Automation — Salesforce Team & Split Update")
     print(f"Open http://localhost:{args.port}/")
     print("Listening on IPv4 and IPv6 loopback only.")
-    print(f"Updates add the assigned PSE as {TEAM_ROLE} with {TEAM_ACCESS} access and a {SPLIT_PERCENTAGE}% {SPLIT_TYPE_LABEL} split after confirmation.")
+    print(f"Confirmed updates preserve the PSE or fill a blank PSE from the Partner Owner, then add missing Team and Split entries for {CLOSED_STAGE} Opportunities.")
     print("Every write is rechecked against Salesforce and logged locally. Press Ctrl-C to stop.")
     try:
         server.serve_forever()

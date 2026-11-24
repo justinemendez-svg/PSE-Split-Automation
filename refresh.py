@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Refresh the Partner Sales Rep team and Overlay split dashboard.
 
-Reads commissionable Renewal, New Business, and Expansion Opportunities with
+Reads commissionable 08 - Closed Renewal, New Business, and Expansion Opportunities with
 a tagged Partner; resolves the existing PSE or Partner Owner and checks
 the PSE field, Opportunity Team and Opportunity Splits. This refresh is read-only.
 
@@ -91,10 +91,6 @@ def sf_query(soql: str, token: str, instance: str, label: str = "records") -> li
     return rows
 
 
-def _children(record: dict, key: str) -> list[dict]:
-    return (record.get(key) or {}).get("records") or []
-
-
 def resolve_split_type_id(token: str, instance: str) -> str:
     """Resolve the org-specific Overlay SplitType ID from an existing split."""
     rows = sf_query(
@@ -166,7 +162,7 @@ def main() -> None:
     try:
         split_type_id = resolve_split_type_id(token, instance)
         records = sf_query(build_soql(), token, instance, "opportunities")
-        print(f"Found {len(records):,} commissionable Renewal, New Business, or Expansion opportunities with a tagged Partner. Fetching team and split membership…", flush=True)
+        print(f"Found {len(records):,} commissionable Renewal, New Business, or Expansion 08 - Closed opportunities with a tagged Partner. Fetching team and split membership…", flush=True)
         team_by_opp: dict[str, list[dict]] = {}
         splits_by_opp: dict[str, list[dict]] = {}
         ids = [record["Id"] for record in records if record.get("Id")]
@@ -176,7 +172,7 @@ def main() -> None:
             futures = {}
             for batch in batches:
                 futures[pool.submit(sf_query, build_team_soql(batch), token, instance, "team members")] = ("team", batch)
-                futures[pool.submit(sf_query, build_split_soql(batch, split_type_id), token, instance, "Overlay splits")] = ("split", batch)
+                futures[pool.submit(sf_query, build_split_soql(batch, split_type_id), token, instance, "splits")] = ("split", batch)
             for completed, future in enumerate(as_completed(futures), start=1):
                 kind, _ = futures[future]
                 for member in future.result():
@@ -204,9 +200,9 @@ def main() -> None:
         json.dump(data, output, ensure_ascii=False, indent=2)
 
     os.replace(DATA_OUT + ".tmp", DATA_OUT)
-    print(f"Checked {len(records):,} opportunities with a partner rep.")
+    print(f"Checked {len(records):,} closed opportunities with a tagged Partner.")
     print(f"Partner opportunities: {summary['total']:,}")
-    print(f"PSE already on Opportunity Team and Overlay split: {summary['tagged']:,}")
+    print(f"PSE field, Opportunity Team and Splits already complete: {summary['tagged']:,}")
     print(f"PSE to update: {summary['needsUpdate']:,}")
     print(f"Wrote local dashboard data to {os.path.relpath(DATA_OUT, HERE)}")
 

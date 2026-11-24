@@ -158,7 +158,7 @@
     <section class="flow-step"><h3><span class="step-number">1</span> Does the closed Opportunity have a Partner tagged?</h3>
       <p>Start with Opportunities whose Stage is exactly <b>08 - Closed</b>. Check whether the closed Opportunity has a tagged <b>Partner</b>.</p>
       <div class="branches"><div class="branch"><strong>Partner is tagged → Continue</strong><p>Use the tagged Partner for this process.</p></div><div class="branch"><strong>No Partner → Stop</strong><p>Skip this Opportunity. It does not appear in the worklist.</p></div></div>
-      <p class="also">Field mapping: your flow calls this Partner__c. In this Salesforce org, the field labeled “Partner” is <code>Referring_Partner__c</code>.</p>
+      <p class="also">Salesforce field: the lookup labeled “Partner” is <code>Referring_Partner__c</code>.</p>
     </section><div class="flow-arrow" aria-hidden="true">↓</div>
     <section class="flow-step"><h3><span class="step-number">2</span> Choose the Partner Sales Rep</h3>
       <div class="branches"><div class="branch"><strong>PSE already populated → Use existing rep</strong><p>Keep <code>Partner_Sales_Rep__c</code> exactly as it is, even if the Partner has a different Owner.</p></div><div class="branch"><strong>PSE blank → Use the Partner’s Owner</strong><p>When you click Update, populate <code>Partner_Sales_Rep__c</code> with the Owner of the tagged Partner.</p></div></div>
