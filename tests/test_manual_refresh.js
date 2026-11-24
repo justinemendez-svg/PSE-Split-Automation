@@ -26,6 +26,17 @@ async function checkLoad(ok, config) {
   await checkLoad(true, { scopeVersion: 4 });
   await checkLoad(true, { scopeVersion: 1 });
   await checkLoad(false, {});
+  const failureElements = new Map();
+  const failureContext = { document: { getElementById: (id) => {
+    if (!failureElements.has(id)) failureElements.set(id, {});
+    return failureElements.get(id);
+  } }, fetch: async () => ({ ok: false, status: 500, json: async () => ({ error: "No module named 'psycopg'" }) }) };
+  vm.createContext(failureContext);
+  vm.runInContext(source, failureContext);
+  vm.runInContext('wire = () => {}; detectApi = async () => {};', failureContext);
+  await vm.runInContext('load()', failureContext);
+  assert(failureElements.get('status').textContent.includes("No module named 'psycopg'"));
+  assert(!failureElements.get('status').textContent.includes('python3'));
   const requests = [];
   const elements = new Map();
   const context = { document: { querySelectorAll: () => [], getElementById: (id) => {

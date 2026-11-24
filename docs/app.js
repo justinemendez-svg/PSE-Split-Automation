@@ -51,12 +51,18 @@ async function load() {
   try {
     const response = await fetch("pse-data.json?_=" + Date.now(), { cache: "no-store" });
     if (!response.ok) {
+      const details = await response.json().catch(() => ({}));
       await detectApi();
       const status = $("status");
+      if (details.error) {
+        status.className = "status err";
+        status.textContent = "Dashboard data could not be loaded: " + details.error + " (HTTP " + response.status + "). Check the server configuration, then reload.";
+        return;
+      }
       status.className = state.writeApi.refreshEnabled ? "status" : "status err";
       status.textContent = state.writeApi.refreshEnabled
         ? "No Salesforce snapshot yet. Click Refresh to load data."
-        : "Dashboard data is not available. Run `python3 refresh.py --org prod`, then reload. (HTTP " + response.status + ")";
+        : "Dashboard data is unavailable (HTTP " + response.status + "). Check the server configuration, then reload.";
       return;
     }
     const data = await response.json();
@@ -70,7 +76,7 @@ async function load() {
       ? "Dashboard snapshot could not be loaded. Click Refresh to fetch it from Salesforce. (" + error.message + ")"
       : window.location.protocol === "file:"
         ? "Open the dashboard through its local server. Double-click serve.command, then open http://localhost:8773 in Chrome."
-        : "Dashboard data is not available. Run `python3 refresh.py --org prod`, then reload. (" + error.message + ")";
+        : "Dashboard data could not be loaded. Check the server connection, then reload. (" + error.message + ")";
   }
 }
 

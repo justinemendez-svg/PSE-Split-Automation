@@ -38,6 +38,8 @@ Use the complete contents of **`standalone_app.py`** as the Main Application Cod
 
 The portal provides `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD`. The package recognizes these automatically. Existing PostgreSQL URL variables and `PG*` variables are also supported; no database password needs to be placed in source code.
 
+Use the complete requirements file: it includes both `psycopg2-binary` and `psycopg[binary]` for PostgreSQL connections. If the data endpoint reports `No module named 'psycopg'`, update the deployed requirements and rebuild the app. A source-only update or browser reload will not install the missing driver.
+
 ## Configure Salesforce access once
 
 A Salesforce administrator must provide an approved OAuth Connected App for this hosted dashboard, with OAuth scopes **api** and **refresh_token**. Its callback URL must exactly match:
