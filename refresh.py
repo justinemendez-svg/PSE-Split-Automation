@@ -216,7 +216,7 @@ def main() -> None:
 def export_snapshot(data, directory):
     from snapshot import MAX_UPLOAD_BYTES, validate_snapshot
     checked = validate_snapshot(data)
-    # These are exactly the records eligible for the dashboard's three categories.
+    # These are exactly the records eligible for the dashboard's category boxes.
     checked['rows'] = [row for row in checked['rows'] if not row['partnerRepOnTeam'] or not row['partnerRepOnSplit']]
     payload = validate_snapshot(checked)
     contents = json.dumps(payload, ensure_ascii=False, separators=(',', ':'), allow_nan=False)

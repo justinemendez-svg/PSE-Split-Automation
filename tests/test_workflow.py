@@ -75,7 +75,8 @@ class WorkflowTests(unittest.TestCase):
 
     def test_preserves_existing_rep_even_when_partner_owner_differs(self):
         sf = SalesforceStub()
-        sf.run()
+        result = sf.run()
+        self.assertEqual(result['states'][sf.opp_id]['partnerOwnerId'], sf.owner)
         self.assertEqual(sf.record['Partner_Sales_Rep__c'], sf.rep)
         self.assertEqual(sf.team, {sf.rep})
         self.assertEqual(sf.splits, {sf.rep})

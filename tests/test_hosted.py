@@ -45,6 +45,12 @@ class SnapshotChecks(unittest.TestCase):
             with self.assertRaises(ValueError): export_snapshot(value,folder)
             self.assertEqual(path.read_bytes(),before)
 
+    def test_partner_owner_id_survives_export_validation(self):
+        value=sample(); value['rows'][0]['partnerOwnerId']='005000000000002AAA'
+        self.assertEqual(validate_snapshot(value)['rows'][0]['partnerOwnerId'],'005000000000002AAA')
+        value['rows'][0]['partnerOwnerId']='invalid'
+        with self.assertRaises(ValueError): validate_snapshot(value)
+
     def test_export_has_exact_category_union_including_partial_memberships(self):
         value=sample()
         for n,team,split in ((2,True,False),(3,True,True)):

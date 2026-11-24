@@ -47,7 +47,7 @@ def validate_snapshot(value):
             clean[field] = item
         try: dt.date.fromisoformat(row.get('closeDate'))
         except (TypeError, ValueError): raise ValueError(f'Row {number} has an invalid Close Date.') from None
-        for field, prefix in (('partnerId', '001'), ('partnerRepId', '005')):
+        for field, prefix in (('partnerId', '001'), ('partnerRepId', '005'), ('partnerOwnerId', '005')):
             item = row.get(field)
             if item is not None and (not isinstance(item, str) or not re.fullmatch(prefix + r'[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?', item)):
                 raise ValueError(f'Row {number} has an invalid {field}.')

@@ -159,9 +159,20 @@ function pseStatus(row) { return row.partnerRepActive === true ? "Active" : row.
 
 function rowComplete(row) { return !row.partnerRepNeedsPopulate && row.partnerRepOnTeam && row.partnerRepOnSplit; }
 
+function pseMatchesPartnerOwner(row) {
+  // Salesforce IDs identify users even when different users share a name.
+  if (row.partnerOwnerId && row.partnerRepId) return row.partnerOwnerId.slice(0, 15) === row.partnerRepId.slice(0, 15);
+  // Older exports have names but no Partner Owner ID; keep them usable.
+  const owner = String(row.partnerOwnerName || "").trim().toLowerCase();
+  const rep = String(row.partnerRepName || "").trim().toLowerCase();
+  if (!owner || !rep || rep === "(user unavailable)") return null;
+  return owner === rep;
+}
+
 function matchesCategory(row, category) {
   const missingMembership = !row.partnerRepOnTeam || !row.partnerRepOnSplit;
-  if (category === "tagged") return !row.partnerRepNeedsPopulate && missingMembership;
+  if (category === "tagged") return !row.partnerRepNeedsPopulate && pseMatchesPartnerOwner(row) === true && missingMembership;
+  if (category === "different") return !row.partnerRepNeedsPopulate && pseMatchesPartnerOwner(row) === false && missingMembership;
   if (category === "untagged") return !!row.partnerRepNeedsPopulate && missingMembership;
   return missingMembership;
 }
@@ -240,6 +251,7 @@ function renderUpdate() {
   const allRows = filteredRows("all");
   const rows = allRows.filter((row) => matchesCategory(row, state.pseCategory));
   $("cWithPse").textContent = fmtCount(allRows.filter((row) => matchesCategory(row, "tagged")).length);
+  $("cDifferentPse").textContent = fmtCount(allRows.filter((row) => matchesCategory(row, "different")).length);
   $("cWithoutPse").textContent = fmtCount(allRows.filter((row) => matchesCategory(row, "untagged")).length);
   $("cNeedsUpdate").textContent = fmtCount(allRows.length);
   document.querySelectorAll("[data-pse-category]").forEach((button) => {
@@ -249,7 +261,8 @@ function renderUpdate() {
   });
   $("categoryLabel").textContent = {
     all: "Showing all Opportunities to update",
-    tagged: "Showing Partner Opportunities with a tagged PSE · missing Team or Split",
+    tagged: "Showing Opportunities with tagged correct PSE · Partner Owner and PSE are the same · missing Team or Split",
+    different: "Showing Opportunities with a tagged PSE different from the Partner Owner · missing Team or Split",
     untagged: "Showing Partner Opportunities without a tagged PSE · missing Team or Split",
   }[state.pseCategory];
   const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
@@ -489,7 +502,7 @@ async function refreshData() {
 function csvCell(value) { return '"' + String(value == null ? "" : value).replace(/"/g, '""') + '"'; }
 function exportCsv() {
   const rows = filteredRows();
-  const columns = ["id", "name", "stage", "closeDate", "fiscalQuarter", "type", "account", "accountOwner", "segment", "region", "partnerName", "partnerOwnerName", "partnerRepName", "partnerRepId", "partnerRepNeedsPopulate", "partnerRepActive", "partnerRepOnTeam", "partnerRepOnSplit"];
+  const columns = ["id", "name", "stage", "closeDate", "fiscalQuarter", "type", "account", "accountOwner", "segment", "region", "partnerName", "partnerOwnerName", "partnerOwnerId", "partnerRepName", "partnerRepId", "partnerRepNeedsPopulate", "partnerRepActive", "partnerRepOnTeam", "partnerRepOnSplit"];
   const lines = [columns.join(","), ...rows.map((row) => columns.map((key) => csvCell(row[key])).join(","))];
   const blob = new Blob(["\ufeff" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob); const anchor = document.createElement("a");

@@ -20,7 +20,7 @@ for(const match of html.matchAll(/<[^>]+\bid="([^"]+)"[^>]*>/g)) {
   for(const entry of match[0].matchAll(/data-([a-z-]+)="([^"]+)"/g)) node.dataset[entry[1].replace(/-([a-z])/g,(_,v)=>v.toUpperCase())]=entry[2];
   nodes.set(node.id,node);
 }
-const categories=['tagged','untagged','all'].map(value=>{const node=new Node(value);node.dataset.pseCategory=value;return node;});
+const categories=['tagged','different','untagged','all'].map(value=>{const node=new Node(value);node.dataset.pseCategory=value;return node;});
 let csv;
 const document={body:{style:{overflow:""}},getElementById:(id)=>{assert(nodes.has(id),'Missing DOM element '+id);return nodes.get(id);},
   querySelector:(selector)=>messages.get(/data-msg="([^"]+)"/.exec(selector)?.[1])||null,
@@ -29,7 +29,7 @@ const document={body:{style:{overflow:""}},getElementById:(id)=>{assert(nodes.ha
 const context={document,console,CSS:{escape:value=>value},setTimeout:()=>1,clearTimeout:()=>{},window:{confirm:()=>false},Blob:class{constructor(chunks){csv=chunks.join('');}},URL:{createObjectURL:()=>'',revokeObjectURL:()=>{}}};
 vm.createContext(context);
 vm.runInContext(fs.readFileSync('docs/app.js','utf8').replace(/load\(\);\s*$/,''),context);
-const base={partnerId:'partner',stage:'08 - Closed',nonCommissionable:false,type:'Renewal',partnerRepOnTeam:false,partnerRepOnSplit:false,partnerRepActive:true,partnerRepName:'Example PSE',closeDate:'2026-11-24'};
+const base={partnerId:'partner',partnerOwnerId:'005000000000001AAA',partnerRepId:'005000000000001AAA',stage:'08 - Closed',nonCommissionable:false,type:'Renewal',partnerRepOnTeam:false,partnerRepOnSplit:false,partnerRepActive:true,partnerRepName:'Example PSE',closeDate:'2026-11-24'};
 const snapshot={config:{scopeVersion:4},rows:[{...base,id:'tagged',name:'Alpha',partnerRepNeedsPopulate:false},{...base,id:'untagged',name:'Beta',partnerRepNeedsPopulate:true,partnerRepActive:false}],summary:{total:2,tagged:0,needsUpdate:2}};
 context.snapshot=snapshot;
 const run=code=>vm.runInContext(code,context);
@@ -68,6 +68,18 @@ const response=value=>({ok:true,status:200,json:async()=>value});
  assert(requests.every(item=>item.body.oppIds.length===1&&item.body.oppIds[0]==='untagged'));
  assert.equal(requests[1].body.confirm,'CONFIRM');
  reset();run('state.pseCategory="tagged";exportCsv()');assert(csv.includes('fiscalQuarter'));assert(csv.includes('Alpha'));assert(!csv.includes('Beta'));
+ reset();
+ run('state.rows.push({...state.rows[0],id:"different",name:"Different rep",partnerRepId:"005000000000002AAA"});renderUpdate()');
+ assert.equal(nodes.get('cWithPse').textContent,'1');assert.equal(nodes.get('cDifferentPse').textContent,'1');
+ assert.equal(nodes.get('cWithoutPse').textContent,'1');assert.equal(nodes.get('cNeedsUpdate').textContent,'3');
+ categories.find(node=>node.dataset.pseCategory==='different').events.click();
+ assert.deepStrictEqual(Array.from(run('filteredRows().map(row=>row.id)')),['different']);
+ assert(nodes.get('categoryLabel').textContent.includes('different from'));
+ run('exportCsv()');assert(csv.includes('Different rep'));assert(!csv.includes('Alpha'));assert(!csv.includes('Beta'));
+ responder=path=>response(path==='/api/preview-all'?{idsToAdd:['different'],states:{}}:{states:{},succeeded:1,failed:0});
+ await run('updateAll()');
+ assert(requests.every(item=>item.body.oppIds.length===1&&item.body.oppIds[0]==='different'));
+ reset();
  responder=()=>({ok:false,status:401,json:async()=>({needsLogin:true,error:'Salesforce login expired'})});
  await assert.rejects(()=>run('postJson("/api/preview",{})'),/login expired/);assert.equal(run('state.writeApi.loggedIn'),false);
  requests.length=0;

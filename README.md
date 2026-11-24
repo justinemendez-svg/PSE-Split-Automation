@@ -24,15 +24,16 @@ Preserve existing PSE values, Team entries, and Split entries, including their e
 
 ## Dashboard
 
-The three clickable summary boxes filter the worklist:
+The four clickable summary boxes filter the worklist:
 
 | Box | Opportunities shown |
 | --- | --- |
-| Opportunities with tagged PSE | Partner and existing PSE; the PSE is missing from the Team, Splits, or both. |
+| Opps with tagged correct PSE | Partner Account Owner and tagged PSE are the same user; the PSE is missing from the Team, Splits, or both. |
+| Opps with Partner, PSE different from Owner | Partner Account Owner and tagged PSE are different users; the PSE is missing from the Team, Splits, or both. Updates preserve the tagged PSE. |
 | Partner but no tagged PSE | Partner and blank PSE; the proposed Partner Owner is missing from the Team, Splits, or both. |
-| All Opportunities to update | Combines the two categories above: Partner Opportunities with or without a tagged PSE that need a Team or Split update. |
+| All Opps to update | Partner Opportunities with or without a tagged PSE that need a Team or Split update. |
 
-The All box equals the sum of the tagged and untagged boxes for the same search and filters. If the existing PSE (or proposed Partner Owner for a blank PSE) is already on both the Team and Splits, the Opportunity is excluded from all three boxes.
+The three PSE categories are mutually exclusive and follow the same search and filters. Matching uses Salesforce user IDs, with a name fallback for older exports without Partner Owner IDs. Records that cannot be compared remain in All Opps to update. If the existing PSE (or proposed Partner Owner for a blank PSE) is already on both the Team and Splits, the Opportunity is excluded from every box.
 
 Cards show Opportunity name, ID, stage, Close Date, type, Account, Account Owner, segment, region, Partner, Partner Owner, PSE, and user status.
 

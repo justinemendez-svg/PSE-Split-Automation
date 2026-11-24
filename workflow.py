@@ -34,7 +34,7 @@ def rep_state(record, team=(), splits=()):
     if not on_team: missing.append('Opportunity Team')
     if not on_split: missing.append('Opportunity Splits')
     return {'stage': record.get('StageName'), 'partnerId': record.get(PARTNER_FIELD), 'partnerName': partner.get('Name'),
-            'partnerOwnerName': (partner.get('Owner') or {}).get('Name'),
+            'partnerOwnerId': partner.get('OwnerId'), 'partnerOwnerName': (partner.get('Owner') or {}).get('Name'),
             'partnerRepId': rep_id, 'partnerRepName': rep.get('Name') or '(user unavailable)',
             'partnerRepActive': rep.get('IsActive'), 'partnerRepNeedsPopulate': populate,
             'partnerRepSource': 'partner_owner' if populate else 'existing',

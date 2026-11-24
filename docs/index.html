@@ -15,7 +15,7 @@
   button:hover { background:#23646a; } button:disabled { opacity:.5; cursor:wait; }
   button.ghost { border:1px solid var(--line); background:white; color:var(--text); } button.ghost:hover { background:#f3f5f7; }
   main { max-width:1500px; margin:0 auto; padding:24px; }
-  .cards { display:grid; grid-template-columns:repeat(3,minmax(150px,1fr)); gap:14px; margin-bottom:20px; }
+  .cards { display:grid; grid-template-columns:repeat(4,minmax(150px,1fr)); gap:14px; margin-bottom:20px; }
   .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:15px 18px; min-height:96px; }
   .card .k { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.45px; }
   .category-card { display:block; text-align:left; color:var(--text); font-weight:400; cursor:pointer; width:100%; font:inherit; }
@@ -118,9 +118,10 @@
   <div id="status" class="status">Loading dashboard data…</div>
   <section id="dashboard" class="hidden">
     <div class="cards" role="group" aria-label="Filter Opportunities by PSE assignment">
-      <button type="button" class="card category-card" data-pse-category="tagged" aria-pressed="false" aria-controls="panelUpdate"><span class="k">Opportunities with tagged PSE</span><span class="v" id="cWithPse">—</span><span class="sub">Partner + tagged PSE · missing Team or Split</span></button>
+      <button type="button" class="card category-card" data-pse-category="tagged" aria-pressed="false" aria-controls="panelUpdate"><span class="k">Opps with tagged correct PSE</span><span class="v" id="cWithPse">—</span><span class="sub">Partner Account Owner &amp; tagged PSE are the same · missing Team or Split</span></button>
+      <button type="button" class="card category-card" data-pse-category="different" aria-pressed="false" aria-controls="panelUpdate"><span class="k">Opps with Partner, PSE different from Owner</span><span class="v" id="cDifferentPse">—</span><span class="sub">Partner Account Owner &amp; tagged PSE are NOT the same · missing Team or Split</span></button>
       <button type="button" class="card category-card" data-pse-category="untagged" aria-pressed="false" aria-controls="panelUpdate"><span class="k">Partner but no tagged PSE</span><span class="v" id="cWithoutPse">—</span><span class="sub">PSE blank · Partner Owner missing from Team or Split</span></button>
-      <button type="button" class="card category-card selected" data-pse-category="all" aria-pressed="true" aria-controls="panelUpdate"><span class="k">All Opportunities to update</span><span class="v" id="cNeedsUpdate">—</span><span class="sub">Both categories · missing Team or Split</span></button>
+      <button type="button" class="card category-card selected" data-pse-category="all" aria-pressed="true" aria-controls="panelUpdate"><span class="k">All Opps to update</span><span class="v" id="cNeedsUpdate">—</span><span class="sub">With or without tagged PSE · missing Team or Split</span></button>
     </div>
     <div class="category-context"><span id="categoryLabel" aria-live="polite">Showing all Opportunities to update</span><span class="sub">Card counts follow your search and filters. Select a box to filter the list.</span></div>
     <div class="toolbar">
@@ -188,9 +189,10 @@
       </div><h4>Clickable boxes</h4>
       <p>Click a box to filter the list by category:</p>
       <ol>
-        <li><b>Opportunities with tagged PSE:</b> Closed Opportunities with a Partner and an existing PSE, where that PSE is missing from the Opportunity Team, Opportunity Splits, or both.</li>
+        <li><b>Opps with tagged correct PSE:</b> Closed Opportunities with a Partner where the tagged PSE and Partner Account Owner are the same user, and that PSE is missing from the Opportunity Team, Opportunity Splits, or both.</li>
+        <li><b>Opps with Partner, PSE different from Owner:</b> Closed Opportunities with a Partner where the tagged PSE and Partner Account Owner are different users, and that PSE is missing from the Opportunity Team, Opportunity Splits, or both. Update preserves the existing tagged PSE.</li>
         <li><b>Partner but no tagged PSE:</b> Closed Opportunities with a Partner but a blank PSE field, where the Partner’s Owner is missing from the Opportunity Team, Opportunity Splits, or both. The Owner is the PSE that will be used when you click Update.</li>
-        <li><b>All Opportunities to update:</b> Combines the first two categories: closed Opportunities with a Partner, with or without a tagged PSE, that still need a Team or Split update.</li>
+        <li><b>All Opps to update:</b> Closed Opportunities with a Partner, with or without a tagged PSE, that still need a Team or Split update.</li>
       </ol>
       <p><b>What “missing” means:</b> If the rep is already on the Team but has no Split, the Opportunity stays in the list. The same applies if the rep has a Split but is missing from the Team. If the rep is already on both, the Opportunity is excluded from all three boxes.</p>
       <h4>Search and filters</h4>
@@ -202,7 +204,7 @@
         <dt>Region</dt><dd>Filters by the Region recorded on the Opportunity.</dd>
         <dt>PSE Status</dt><dd>Choose Active, Inactive, or both. If a PSE is tagged, this is that user’s status. If the PSE field is blank, this is the Partner Owner’s status.</dd>
       </dl>
-      <p>The box counts reflect your search and filters. <b>All Opportunities to update = tagged PSE category + no tagged PSE category</b> for the same selections.</p>
+      <p>The box counts reflect your search and filters. The matching-PSE, different-PSE, and no-PSE categories are separate. User IDs determine whether the PSE matches the Partner Account Owner; older exports use names until fresh data is exported. Records without enough information to compare stay visible in All Opps to update.</p>
       <div data-local-actions><h4>Update and export</h4>
       <p><b>Update in Salesforce</b> applies the process to one Opportunity after confirmation. <b>Update all N in Salesforce</b> applies it to all matching results across all pages, using your selected box, search, and filters. <b>Export CSV</b> downloads that same filtered list.</p>
       <p>Refresh only reads Salesforce. Update actions preserve an existing PSE, populate a blank PSE from the tagged Partner’s Owner, and add missing Team and Split entries. Each Opportunity uses its own PSE. Existing entries are preserved; Salesforce errors are reported so you can retry the remaining steps.</p>
