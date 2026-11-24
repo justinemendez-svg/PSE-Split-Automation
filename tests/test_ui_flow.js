@@ -11,6 +11,7 @@ class Node {
   setAttribute(name,value) { this[name]=value; }
   addEventListener(type,fn) { this.events[type]=fn; }
   focus() { this.focused=true; }
+  select() { this.selected=true; }
   showModal() { this.open=true; }
   close() { this.open=false; this.events.close?.(); }
 }
@@ -21,7 +22,7 @@ for(const match of html.matchAll(/<[^>]+\bid="([^"]+)"[^>]*>/g)) {
 }
 const categories=['tagged','untagged','all'].map(value=>{const node=new Node(value);node.dataset.pseCategory=value;return node;});
 let csv;
-const document={body:{style:{}},getElementById:(id)=>{assert(nodes.has(id),'Missing DOM element '+id);return nodes.get(id);},
+const document={body:{style:{overflow:""}},getElementById:(id)=>{assert(nodes.has(id),'Missing DOM element '+id);return nodes.get(id);},
   querySelector:(selector)=>messages.get(/data-msg="([^"]+)"/.exec(selector)?.[1])||null,
   querySelectorAll:(selector)=>selector==='[data-pse-category]'?categories:selector==='.multi-filter'?['quarterFilter','typeFilter','segmentFilter','regionFilter','pseStatusFilter'].map(id=>nodes.get(id)):[],
   addEventListener:()=>{}, createElement:()=>({click(){},set href(value){},set download(value){}})};
@@ -74,7 +75,32 @@ const response=value=>({ok:true,status:200,json:async()=>value});
  await run('detectApi()');
  assert(!nodes.get('uploadDataBtn').classList.contains('hidden'));
  nodes.get('uploadDataBtn').events.click();assert(nodes.get('uploadPage').open);
+ nodes.get('firstTimeUploadLink').events.click();
+ assert(nodes.get('setupInstructions').open); assert(nodes.get('uploadPage').open);
+ nodes.get('closeSetupInstructions').events.click();
+ assert(!nodes.get('setupInstructions').open); assert(nodes.get('uploadPage').open);
+ assert(nodes.get('firstTimeUploadLink').focused);
  nodes.get('closeUploadPage').events.click();assert(!nodes.get('uploadPage').open);
+ nodes.get('processFlowBtn').events.click();
+ nodes.get('firstTimeProcessLink').events.click();
+ assert(!nodes.get('processFlow').open); assert(nodes.get('uploadPage').open); assert(nodes.get('setupInstructions').open);
+ nodes.get('setupInstructions').close(); // Native Escape follows this same close event.
+ assert(nodes.get('uploadPage').open);
+ assert.equal(document.body.style.overflow,'hidden');
+ let copiedPrompt;
+ nodes.get('setupPrompt').value='Example complete setup prompt';
+ context.navigator={clipboard:{writeText:async value=>{copiedPrompt=value;}}};
+ await nodes.get('copySetupPrompt').events.click();
+ assert.equal(copiedPrompt,nodes.get('setupPrompt').value);
+ context.navigator.clipboard.writeText=async()=>{throw new Error('Clipboard permission denied');};
+ await nodes.get('copySetupPrompt').events.click();
+ assert(nodes.get('setupPrompt').selected);
+ assert(nodes.get('copySetupMsg').textContent.includes('copy the highlighted prompt'));
+ nodes.get('closeUploadPage').events.click();
+ assert.equal(document.body.style.overflow,'');
+ assert(html.includes('MY_ACTUAL_SYNCED_FOLDER_PATH'));
+ assert(html.includes('Do not modify Salesforce records'));
+ assert(html.includes('Close · Back to Upload'));
  await run('previewUpload({size:10,text:async()=>"invalid JSON"})');
  assert(nodes.get('confirmUploadBtn').disabled);
  context.uploadSnapshot={...snapshot,generatedAt:'2026-11-24T00:00:00+00:00'};

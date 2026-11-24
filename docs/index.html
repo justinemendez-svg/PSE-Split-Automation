@@ -97,6 +97,10 @@
   .help-filters { display:grid; grid-template-columns:minmax(130px,180px) 1fr; gap:12px 18px; margin:16px 0; }
   .help-filters dt { font-weight:650; } .help-filters dd { margin:0; }
   @media(max-width:600px) { .help-filters { grid-template-columns:1fr; gap:4px; } .help-filters dd { margin-bottom:12px; } }
+  .text-link { padding:0; background:transparent; color:var(--teal); font:inherit; font-weight:650; text-decoration:underline; text-underline-offset:3px; }
+  .text-link:hover { background:transparent; color:#23646a; }
+  .setup-prompt { display:block; width:100%; min-height:420px; padding:16px; border:1px solid var(--line); border-radius:8px; background:#f3f5f7; color:var(--text); font:13px/1.6 ui-monospace,monospace; resize:vertical; }
+  .setup-actions { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin:12px 0; }
   button:focus-visible, a:focus-visible { outline:3px solid #6a9fa3; outline-offset:3px; }
   @media(max-width:650px) { .branches { grid-template-columns:1fr; } .process-intro h2 { font-size:25px; } .process-bar { padding:14px 16px; } .flow-step { padding:16px; } }
 </style>
@@ -178,7 +182,7 @@
     </section>
     <section class="process-help"><h3>Using the dashboard</h3>
       <p>The list shows closed Opportunities with a Partner tagged where the PSE still needs to be added to the Opportunity Team, Opportunity Splits, or both. When the PSE field is blank, these checks use the tagged Partner’s Owner.</p>
-      <div data-hosted-upload class="hidden"><h4>Upload the data</h4><p>Run the local Salesforce export command, then click <b>Upload the data</b> and choose the generated <b>pse-data.json</b>. Uploading replaces the shared saved snapshot. Opening or reloading this dashboard shows the last uploaded file; Google Drive changes are not imported automatically.</p><p>Use the local dashboard for Salesforce updates. The hosted dashboard supports the worklist, filters, and CSV export.</p></div><div data-local-actions><h4>Refresh</h4>
+      <div data-hosted-upload class="hidden"><h4>Upload the data</h4><p>First time downloading the data? <button type="button" id="firstTimeProcessLink" class="text-link">View first-time setup instructions</button>. The guide includes a prompt for your Codex and the manual upload steps. Closing the guide takes you to Upload the data.</p><p>Run the local Salesforce export command, then click <b>Upload the data</b> and choose the generated <b>pse-data.json</b>. Uploading replaces the shared saved snapshot. Opening or reloading this dashboard shows the last uploaded file; Google Drive changes are not imported automatically.</p><p>Use the local dashboard for Salesforce updates. The hosted dashboard supports the worklist, filters, and CSV export.</p></div><div data-local-actions><h4>Refresh</h4>
       <p>Click <b>Refresh</b> to pull the latest data from Salesforce. The dashboard updates its counts and list based on the current Opportunity, Partner, PSE, Team, and Split records in SFDC. Data refreshes only when this button is clicked. Opening or reloading the page shows the last saved data.</p>
       </div><h4>Clickable boxes</h4>
       <p>Click a box to filter the list by category:</p>
@@ -210,8 +214,10 @@
   <div class="process-content">
     <div class="process-intro"><h2 id="uploadTitle">Upload the data</h2><p>Load your Salesforce export into the dashboard</p></div>
     <section class="process-help">
-      <h3>1 · Export the latest Salesforce data locally</h3>
-      <p>Run <code>python3 export_for_upload.py --org prod</code> from the repository folder. This reads Salesforce using your existing local CLI session and saves <b>pse-data.json</b> in Google Drive:</p>
+      <h3>First time here?</h3>
+      <p><button type="button" id="firstTimeUploadLink" class="text-link">View first-time setup instructions</button> to set up the download using your own Salesforce account. The guide includes a ready-to-copy Codex prompt. Close the guide to return here.</p>
+      <h3>1 · Download fresh data to Google Drive</h3>
+      <p>If setup is complete, run the exact export command Codex gave you from your cloned repository folder. It includes <code>--export-dir</code> with your own synced Google Drive path. Wait for the export to finish successfully and for Google Drive to finish syncing. The file to upload is:</p>
       <p style="overflow-wrap:anywhere"><code>GTM Ops/MSS/PSE_Split_Automation/pse-data.json</code></p>
       <h3>2 · Choose the exported file</h3>
       <p>Select <b>pse-data.json</b> from that folder. Use the complete JSON export; the dashboard’s filtered CSV export cannot be uploaded here. Maximum size: 25 MB.</p>
@@ -221,6 +227,59 @@
       <button id="confirmUploadBtn" disabled>Upload data to dashboard</button>
       <p id="uploadMsg" class="msg" role="status" aria-live="polite">Choose pse-data.json to preview the extraction date and record count.</p>
       <p>Close this page or press Escape to return to the dashboard. Your search and filters are preserved where available in the uploaded data.</p>
+    </section>
+  </div>
+</dialog>
+<dialog id="setupInstructions" class="process-page" aria-labelledby="setupTitle">
+  <div class="process-bar"><div class="process-brand">PSE Split Automation</div><button id="closeSetupInstructions" class="ghost" autofocus>Close · Back to Upload ×</button></div>
+  <div class="process-content">
+    <div class="process-intro"><h2 id="setupTitle">First-time setup instructions</h2><p>Set up your Salesforce download once, then upload fresh data manually</p></div>
+    <section class="process-help">
+      <h3>Before you start</h3>
+      <p>You need your own Salesforce account with API access and permission to read the required records, Google Drive for desktop with <b>GTM Ops/MSS/PSE_Split_Automation</b> synced and writable, and Codex running on your computer. The repository is public: <a href="https://github.com/justinemendez-svg/PSE-Split-Automation" target="_blank" rel="noopener">PSE-Split-Automation on GitHub</a>.</p>
+      <h3>1 · Paste this prompt into your Codex</h3>
+      <p>To set up the download to Google Drive, copy the complete prompt below, paste it into a new Codex chat on your computer, and send it. Follow any installation or Salesforce/Okta sign-in steps Codex shows you. Each person must use their own account and local folder path.</p>
+      <div class="setup-actions"><button type="button" id="copySetupPrompt">Copy Codex prompt</button><span id="copySetupMsg" class="sub" role="status" aria-live="polite"></span></div>
+      <textarea id="setupPrompt" class="setup-prompt" readonly aria-label="Codex setup prompt">Set up the PSE Split Automation Salesforce data export on my computer using this public repository:
+
+https://github.com/justinemendez-svg/PSE-Split-Automation
+
+Clone the repo, or pull the latest version if it already exists. Read its setup instructions and check that Python 3, Git, and Salesforce CLI are installed.
+
+Use MY OWN Salesforce account and CLI session. If login is needed, guide me through Salesforce/Okta authentication using:
+
+sf org login web --alias prod --instance-url https://zendesk.my.salesforce.com
+
+Locate MY locally synced Google Drive folder corresponding to:
+
+Shared drives/GTM Ops/MSS/PSE_Split_Automation
+
+Discover the actual path on my computer—do not use Justine’s username or assume her local path exists. If the shared folder is unavailable or I cannot write to it, explain the missing access before continuing.
+
+Run the repository’s read-only export command using my Salesforce account and the discovered folder:
+
+python3 export_for_upload.py --org prod --export-dir &quot;&lt;MY_ACTUAL_SYNCED_FOLDER_PATH&gt;&quot;
+
+This must download the latest Salesforce data and save/replace pse-data.json in that same shared Google Drive folder. Preserve the repository’s existing scope and classification rules.
+
+Verify that the export completed successfully, the JSON passes the repository’s validation, and the file exists in the correct folder. Report its extraction date, Opportunity count, and full path.
+
+Do not modify Salesforce records, commit exported data to GitHub, schedule automatic refreshes, or upload the file to AppFoundry. The AppFoundry upload will be done manually.
+
+Finally, give me the exact command to reuse whenever I want to refresh the Google Drive data.</textarea>
+      <h3>2 · Check the downloaded file</h3>
+      <p>Wait for Codex to confirm the export succeeded. It should report the extraction date, Opportunity count, and full path to <b>pse-data.json</b> in your synced <b>PSE_Split_Automation</b> folder. Wait for Google Drive to finish syncing. Keep the exact reusable export command Codex gives you.</p>
+      <h3>3 · Upload the file manually</h3>
+      <ol>
+        <li>Click <b>Close · Back to Upload</b> at the top of this guide. You will return to <b>Upload the data</b>.</li>
+        <li>Choose <b>pse-data.json</b> from your synced <b>GTM Ops/MSS/PSE_Split_Automation</b> folder. Use JSON, not the dashboard’s Export CSV file. Maximum size: 25 MB.</li>
+        <li>Check the extraction date and record count shown in the preview, then click <b>Upload data to dashboard</b>.</li>
+        <li>Wait for <b>Upload complete</b>, then click <b>Close · Back to dashboard</b> to view the updated counts and list.</li>
+      </ol>
+      <h3>Next time you need fresh data</h3>
+      <p>Ask your Codex to run your saved export command again, wait for the export and Google Drive sync to finish, then repeat the manual upload steps above. First-time setup is only needed again if your computer, Salesforce access, or Drive folder changes.</p>
+      <p><b>What changes:</b> the command reads Salesforce and replaces the shared Google Drive export. Uploading replaces the saved data for everyone using this dashboard. Neither step updates Salesforce records. There are no scheduled downloads or automatic uploads.</p>
+      <p>Pressing Escape also closes this guide and returns you to the Upload page.</p>
     </section>
   </div>
 </dialog>

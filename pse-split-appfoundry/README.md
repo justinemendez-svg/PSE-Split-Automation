@@ -26,6 +26,8 @@ The portable export includes the complete dashboard worklist: closed, commission
 
 ## Upload the data
 
+First-time users can open **View first-time setup instructions** from either Process Flow’s Upload the data section or the Upload page. Both links open the same guide, with the complete Codex setup prompt, a Copy button, required access, file checks, and manual upload steps. **Close · Back to Upload** or Escape returns to the Upload page; that page’s Close button returns to the dashboard. Opening the guide does not start an export or upload a file.
+
 1. Open the hosted dashboard and click **Upload the data**.
 2. Choose the generated **pse-data.json**. Review the extraction date and record count.
 3. Click **Upload data to dashboard**. The server validates the complete file before replacing the saved shared snapshot.
