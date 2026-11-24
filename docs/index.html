@@ -107,9 +107,14 @@
   <div class="spacer"></div>
   <span id="refreshMsg" class="sub" aria-live="polite"></span><span id="who" class="sub"></span>
   <button class="ghost" id="processFlowBtn">Process Flow</button>
-  <button class="ghost hidden" id="refreshBtn">Refresh</button><button id="csvBtn">Export CSV</button>
+  <button class="ghost hidden" id="connectSfBtn">Connect to Salesforce</button><button class="ghost hidden" id="refreshBtn">Refresh</button><button id="csvBtn">Export CSV</button>
 </header>
 <main>
+  <section id="salesforceConnection" class="card hidden" style="margin-bottom:20px" aria-label="Salesforce connection">
+    <h2 style="margin-top:0">Connect to Salesforce</h2>
+    <p>Connect your Salesforce account to refresh data and update Opportunities. Signing in does not refresh data or change Salesforce records.</p>
+    <p id="connectionMsg" role="status" aria-live="polite">Use Connect to Salesforce above to sign in through Salesforce or Okta.</p>
+  </section>
   <div id="status" class="status">Loading dashboard data…</div>
   <section id="dashboard" class="hidden">
     <div class="cards" role="group" aria-label="Filter Opportunities by PSE assignment">

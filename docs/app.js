@@ -137,7 +137,14 @@ async function detectApi() {
     state.writeApi.org = health.org || "default";
     state.writeApi.authMode = health.authMode || "local";
     state.writeApi.loggedIn = state.writeApi.authMode !== "oauth" || !!health.loggedIn;
-    if (health.refreshEnabled) $("refreshBtn").classList.remove("hidden");
+    $("refreshBtn").classList.toggle("hidden", !health.refreshEnabled);
+    const needsConnection = state.writeApi.authMode === "oauth" && !state.writeApi.loggedIn;
+    $("connectSfBtn").classList.toggle("hidden", !needsConnection);
+    $("salesforceConnection").classList.toggle("hidden", !needsConnection);
+    if (needsConnection) $("connectionMsg").textContent = health.refreshEnabled
+      ? "Click Connect to Salesforce to sign in through Salesforce or Okta. Then click Refresh to load the latest data."
+      : "Salesforce connection setup is required. Your app administrator must configure the Salesforce OAuth credentials in AppFoundry before sign-in is available.";
+    $("who").textContent = $("who").textContent.split(" · Salesforce org:")[0];
     if (state.writeApi.enabled) $("who").textContent += " · Salesforce org: " + state.writeApi.org;
     renderUpdate();
   } catch (_) { /* Static hosting has no local Salesforce API. */ }
@@ -292,6 +299,31 @@ function ensureWriteLogin() {
     window.addEventListener("message", onMessage);
     const timer = setInterval(() => { if (popup.closed) finish(state.writeApi.loggedIn); }, 500);
   });
+}
+
+async function connectSalesforce() {
+  if (state.busy) return;
+  const message = $("connectionMsg");
+  if (!state.writeApi.refreshEnabled) {
+    message.textContent = "Salesforce sign-in is not configured yet. Ask your app administrator to set SF_CLIENT_ID, SF_CLIENT_SECRET, SF_REDIRECT_URI, and a stable FLASK_SECRET_KEY in AppFoundry, then redeploy.";
+    return;
+  }
+  const button = $("connectSfBtn");
+  button.disabled = true;
+  message.textContent = "Complete Salesforce or Okta sign-in in the login window.";
+  try {
+    if (await ensureWriteLogin()) {
+      await detectApi();
+      if (state.writeApi.loggedIn) $("refreshMsg").textContent = "Connected to Salesforce. Click Refresh to load the latest data.";
+      else message.textContent = "Salesforce sign-in could not be verified. Click Connect to Salesforce to retry.";
+    } else {
+      message.textContent = "Salesforce connection was not completed. Click Connect to Salesforce to retry.";
+    }
+  } catch (_) {
+    message.textContent = "Could not verify your Salesforce connection. Please try again.";
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function setRowState(oppId, value) {
@@ -532,6 +564,7 @@ function wire() {
   $("actionPrev").addEventListener("click", () => { state.updatePage = Math.max(1, state.updatePage - 1); renderUpdate(); });
   $("actionNext").addEventListener("click", () => { state.updatePage += 1; renderUpdate(); });
   $("updateAllBtn").addEventListener("click", updateAll);
+  $("connectSfBtn").addEventListener("click", () => connectSalesforce());
   $("refreshBtn").addEventListener("click", () => refreshData());
   $("csvBtn").addEventListener("click", exportCsv);
 }

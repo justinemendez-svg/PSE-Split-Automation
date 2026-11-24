@@ -63,6 +63,8 @@ Restart or redeploy as required by AppFoundry after adding the secrets so the ap
 
 ## How Refresh works after deployment
 
+When a user opens the hosted dashboard without a Salesforce session, it shows **Connect to Salesforce**. Clicking it opens the Salesforce/Okta login window. Successful sign-in returns to the dashboard and enables the existing actions; it does not pull data or write Salesforce records. If OAuth credentials are missing, the connection prompt explains that setup is required.
+
 1. The user clicks **Refresh**.
 2. If necessary, a Salesforce login popup opens. The user signs in through the approved Salesforce/SSO flow.
 3. The app reads the scoped Opportunities, Partner Owners, Team members, and Split members from Salesforce.
