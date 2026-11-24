@@ -53,7 +53,11 @@ def validate_snapshot(value):
                 raise ValueError(f'Row {number} has an invalid {field}.')
             clean[field] = item
         amount = row.get('amount')
-        if amount is not None and (type(amount) not in (int, float) or not math.isfinite(amount)):
+        try:
+            valid_amount = amount is None or (type(amount) in (int, float) and math.isfinite(amount))
+        except OverflowError:
+            valid_amount = False
+        if not valid_amount:
             raise ValueError(f'Row {number} has an invalid amount.')
         clean.update(amount=amount, partnerRepActive=row.get('partnerRepActive'))
         rows.append(clean)

@@ -60,7 +60,7 @@ class SnapshotChecks(unittest.TestCase):
         variants=[]
         value=sample(); value['config']['scopeVersion']=1; variants.append(value)
         value=sample(); value['rows']*=2; variants.append(value)
-        for key,item in [('stage','07 - Won'),('nonCommissionable',True),('type','Other'),('partnerId',None),('id','bad'),('closeDate','invalid'),('partnerRepOnSplit',None),('amount',float('nan'))]:
+        for key,item in [('stage','07 - Won'),('nonCommissionable',True),('type','Other'),('partnerId',None),('id','bad'),('closeDate','invalid'),('partnerRepOnSplit',None),('amount',float('nan')),('amount',10**1000)]:
             value=sample(); value['rows'][0][key]=item; variants.append(value)
         value=sample(); value['generatedAt']='invalid'; variants.append(value)
         for value in variants:
