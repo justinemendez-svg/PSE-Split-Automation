@@ -9,7 +9,7 @@
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
   header { display:flex; align-items:center; gap:16px; flex-wrap:wrap; padding:16px 24px; background:var(--panel); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:10; }
-  h1 { margin:0; font-size:18px; font-weight:680; } .sub { color:var(--muted); font-size:12px; }
+  h1 { margin:0; font-size:20px; font-weight:700; } .sub { color:var(--muted); font-size:12px; }
   .spacer { flex:1; }
   button { border:0; border-radius:8px; padding:9px 15px; background:var(--teal); color:white; font:inherit; font-weight:650; cursor:pointer; }
   button:hover { background:#23646a; } button:disabled { opacity:.5; cursor:wait; }
@@ -77,9 +77,10 @@
   dialog.process-page { position:fixed; inset:0; width:100vw; max-width:none; height:100dvh; max-height:none; margin:0; padding:0; border:0; background:var(--bg); color:var(--text); }
   dialog.process-page::backdrop { background:rgba(0,0,0,.3); }
   .process-bar { position:sticky; top:0; z-index:2; display:flex; align-items:center; gap:20px; padding:18px max(24px,calc((100vw - 1100px)/2)); background:white; border-bottom:1px solid var(--line); }
-  .process-bar h2 { margin:0; font-size:18px; } .process-bar button { margin-left:auto; white-space:nowrap; }
+  .process-bar .process-brand { margin:0; font-size:22px; font-weight:700; } .process-bar button { margin-left:auto; white-space:nowrap; }
   .process-content { max-width:1100px; margin:auto; padding:32px 24px 50px; }
-  .process-intro { max-width:760px; } .process-intro h2 { font-size:30px; line-height:1.2; margin:0 0 12px; }
+  .process-intro { max-width:760px; } .process-intro h2 { font-size:32px; font-weight:750; line-height:1.2; margin:0 0 8px; }
+  .process-intro p { margin:0; font-size:14px; font-weight:400; color:var(--muted); }
   .process-scope { margin:20px 0; color:var(--teal); }
   .flow-step { position:relative; background:white; border:1px solid var(--line); border-radius:14px; padding:22px; }
   .flow-step h3 { margin:0 0 10px; display:flex; align-items:center; gap:12px; font-size:17px; }
@@ -151,9 +152,9 @@
 </main>
 
 <dialog id="processFlow" class="process-page" aria-labelledby="processTitle">
-  <div class="process-bar"><div><h2 id="processTitle">Process Flow</h2><div class="sub">PSE Split Automation · How the dashboard works</div></div><button id="closeProcessFlow" class="ghost" autofocus>Close · Back to dashboard ×</button></div>
+  <div class="process-bar"><div class="process-brand">PSE Split Automation</div><button id="closeProcessFlow" class="ghost" autofocus>Close · Back to dashboard ×</button></div>
   <div class="process-content">
-    <div class="process-intro"><h2>One Partner. One PSE.<br>Check each step in order.</h2><p>The dashboard finds closed Opportunities (Stage <b>08 - Closed</b>) that need a Partner Sales Rep field, Opportunity Team, or Opportunity Split update. The same rep is used throughout the process.</p></div>
+    <div class="process-intro"><h2 id="processTitle">Process Flow</h2><p>How the dashboard works</p></div>
     <p class="process-scope"><b>Filter:</b> Closed Opportunity · With Partner Tagged · Stage: 08 - Closed</p>
     <section class="flow-step"><h3><span class="step-number">1</span> Does the closed Opportunity have a Partner tagged?</h3>
       <p>Start with Opportunities whose Stage is exactly <b>08 - Closed</b>. Check whether the closed Opportunity has a tagged <b>Partner</b>.</p>
