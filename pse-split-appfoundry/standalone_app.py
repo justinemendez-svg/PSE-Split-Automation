@@ -28,6 +28,7 @@ from pathlib import Path
 from flask import Flask, Response, jsonify, redirect, request, session
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import URL
 
 APP_DIR = Path(__file__).resolve().parent
 ASSET_DIR = APP_DIR.parent / "docs"
@@ -75,14 +76,14 @@ def _database_url() -> str:
         value = os.environ.get(key)
         if value:
             return value.replace("postgres://", "postgresql://", 1) if value.startswith("postgres://") else value
-    host = os.environ.get("PGHOST") or os.environ.get("POSTGRES_HOST")
-    user = os.environ.get("PGUSER") or os.environ.get("POSTGRES_USER")
-    password = os.environ.get("PGPASSWORD") or os.environ.get("POSTGRES_PASSWORD", "")
-    name = os.environ.get("PGDATABASE") or os.environ.get("POSTGRES_DB")
-    port = os.environ.get("PGPORT", "5432")
+    host = os.environ.get("DB_HOST") or os.environ.get("PGHOST") or os.environ.get("POSTGRES_HOST")
+    user = os.environ.get("DB_USER") or os.environ.get("PGUSER") or os.environ.get("POSTGRES_USER")
+    password = os.environ.get("DB_PASSWORD") or os.environ.get("PGPASSWORD") or os.environ.get("POSTGRES_PASSWORD", "")
+    name = os.environ.get("DB_NAME") or os.environ.get("PGDATABASE") or os.environ.get("POSTGRES_DB")
+    port = os.environ.get("DB_PORT") or os.environ.get("PGPORT", "5432")
     if host and user and name:
-        credential = f"{user}:{password}@" if password else f"{user}@"
-        return f"postgresql://{credential}{host}:{port}/{name}"
+        return URL.create("postgresql", username=user, password=password or None,
+                          host=host, port=int(port), database=name).render_as_string(hide_password=False)
     raise RuntimeError("AppFoundry Postgres is required. Attach a PostgreSQL database to this app.")
 
 
