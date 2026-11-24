@@ -216,14 +216,36 @@
     <section class="process-help">
       <h3>First time here?</h3>
       <p><button type="button" id="firstTimeUploadLink" class="text-link">View first-time setup instructions</button> to set up the download using your own Salesforce account. The guide includes a ready-to-copy Codex prompt. Close the guide to return here.</p>
-      <h3>1 · Download fresh data to Google Drive</h3>
-      <p>If setup is complete, run the exact export command Codex gave you from your cloned repository folder. It includes <code>--export-dir</code> with your own synced Google Drive path. Wait for the export to finish successfully and for Google Drive to finish syncing. The file to upload is:</p>
+      <h3>1 · Ask Codex to download fresh data</h3>
+      <p>Open Codex on your computer. Copy the prompt below, paste it into your Codex chat, and send it. Codex will use your own Salesforce account to download the latest data into your synced Google Drive folder.</p>
+      <div class="setup-actions"><button type="button" id="copyDownloadPrompt">Copy download prompt</button><span id="copyDownloadMsg" class="sub" role="status" aria-live="polite"></span></div>
+      <textarea id="downloadPrompt" class="setup-prompt" readonly aria-label="Codex download prompt">Download the latest PSE Split Automation data from Salesforce into our shared Google Drive folder.
+
+Use this public repository:
+https://github.com/justinemendez-svg/PSE-Split-Automation
+
+Locate my existing clone and read its export instructions. Use MY OWN Salesforce CLI account. If my session has expired, guide me through Salesforce/Okta sign-in.
+
+Find MY locally synced Google Drive folder for:
+Shared drives/GTM Ops/MSS/PSE_Split_Automation
+
+Use the actual folder path on my computer, not Justine’s username or local path. Confirm I can write to the shared folder. If the repository or access is missing, explain what setup I need.
+
+From the repository folder, run:
+python3 export_for_upload.py --org prod --export-dir &quot;&lt;MY_ACTUAL_SYNCED_FOLDER_PATH&gt;&quot;
+
+Replace the placeholder with my actual synced folder path before running. Pull fresh Salesforce data; do not reuse an old snapshot. Preserve the repository’s scope and classification rules.
+
+Verify the export completed successfully and pse-data.json was saved in that Google Drive folder. Report the extraction date, Opportunity count, and full file path so I can choose it for upload. Tell me to wait for Google Drive to finish syncing.
+
+Do not modify Salesforce records, upload anything to AppFoundry, commit exported data to GitHub, or schedule automatic downloads. I will upload pse-data.json to the dashboard manually.</textarea>
+      <p>Wait for Codex to confirm the download succeeded and show the extraction date, Opportunity count, and full file path. Wait for Google Drive to finish syncing before choosing the file below:</p>
       <p style="overflow-wrap:anywhere"><code>GTM Ops/MSS/PSE_Split_Automation/pse-data.json</code></p>
       <h3>2 · Choose the exported file</h3>
       <p>Select <b>pse-data.json</b> from that folder. Use the complete JSON export; the dashboard’s filtered CSV export cannot be uploaded here. Maximum size: 25 MB.</p>
       <input id="uploadFile" type="file" accept=".json,application/json" aria-label="Salesforce dashboard data file" />
       <h3>3 · Upload to the dashboard</h3>
-      <p>This replaces the saved data for everyone using this AppFoundry dashboard. It does not update Salesforce. To show later Salesforce changes, rerun the local command and upload the new file.</p>
+      <p>This replaces the saved data for everyone using this AppFoundry dashboard. It does not update Salesforce. To show later Salesforce changes, send the download prompt to Codex again, then manually upload the new file.</p>
       <button id="confirmUploadBtn" disabled>Upload data to dashboard</button>
       <p id="uploadMsg" class="msg" role="status" aria-live="polite">Choose pse-data.json to preview the extraction date and record count.</p>
       <p>Close this page or press Escape to return to the dashboard. Your search and filters are preserved where available in the uploaded data.</p>
@@ -277,7 +299,7 @@ Finally, give me the exact command to reuse whenever I want to refresh the Googl
         <li>Wait for <b>Upload complete</b>, then click <b>Close · Back to dashboard</b> to view the updated counts and list.</li>
       </ol>
       <h3>Next time you need fresh data</h3>
-      <p>Ask your Codex to run your saved export command again, wait for the export and Google Drive sync to finish, then repeat the manual upload steps above. First-time setup is only needed again if your computer, Salesforce access, or Drive folder changes.</p>
+      <p>Return to Upload the data, copy the download prompt into your Codex chat, and wait for the export and Google Drive sync to finish. Then repeat the manual upload steps above. First-time setup is only needed again if your computer, Salesforce access, or Drive folder changes.</p>
       <p><b>What changes:</b> the command reads Salesforce and replaces the shared Google Drive export. Uploading replaces the saved data for everyone using this dashboard. Neither step updates Salesforce records. There are no scheduled downloads or automatic uploads.</p>
       <p>Pressing Escape also closes this guide and returns you to the Upload page.</p>
     </section>

@@ -600,16 +600,18 @@ function wire() {
   $("setupInstructions").addEventListener("close", () => {
     $("firstTimeUploadLink").focus({ preventScroll: true });
   });
-  $("copySetupPrompt").addEventListener("click", async () => {
+  const copyCodexPrompt = async (promptId, messageId) => {
     try {
-      await navigator.clipboard.writeText($("setupPrompt").value);
-      $("copySetupMsg").textContent = "Copied. Paste the prompt into your Codex chat and send it.";
+      await navigator.clipboard.writeText($(promptId).value);
+      $(messageId).textContent = "Copied. Paste the prompt into your Codex chat and send it.";
     } catch (_) {
-      $("setupPrompt").focus();
-      $("setupPrompt").select();
-      $("copySetupMsg").textContent = "Select and copy the highlighted prompt, then paste it into your Codex chat.";
+      $(promptId).focus();
+      $(promptId).select();
+      $(messageId).textContent = "Select and copy the highlighted prompt, then paste it into your Codex chat.";
     }
-  });
+  };
+  $("copySetupPrompt").addEventListener("click", () => copyCodexPrompt("setupPrompt", "copySetupMsg"));
+  $("copyDownloadPrompt").addEventListener("click", () => copyCodexPrompt("downloadPrompt", "copyDownloadMsg"));
   $("closeUploadPage").addEventListener("click", () => $("uploadPage").close());
   $("uploadPage").addEventListener("close", () => {
     document.body.style.overflow = uploadPriorOverflow;
