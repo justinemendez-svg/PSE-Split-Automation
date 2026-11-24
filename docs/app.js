@@ -478,8 +478,8 @@ async function refreshData() {
       }
     }
     await reloadSnapshot();
-    message.className = "sub ok";
-    message.textContent = "Refreshed · " + fmtCount((result.summary || state.summary).total) + " in-scope Partner Opportunities";
+    message.className = "sub";
+    message.textContent = "";
   } catch (error) {
     if (error.message.toLowerCase().includes("salesforce session expired")) state.writeApi.loggedIn = false;
     message.className = "sub err"; message.textContent = "Refresh failed: " + error.message;
