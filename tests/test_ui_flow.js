@@ -84,6 +84,10 @@ const response=value=>({ok:true,status:200,json:async()=>value});
  nodes.get('processFlowBtn').events.click();
  nodes.get('firstTimeProcessLink').events.click();
  assert(!nodes.get('processFlow').open); assert(nodes.get('uploadPage').open); assert(nodes.get('setupInstructions').open);
+ nodes.get('processFlowBtn').focused=false;
+ nodes.get('processFlow').events.close(); // Browsers may dispatch close after the next dialog opens.
+ assert.equal(document.body.style.overflow,'hidden');
+ assert(!nodes.get('processFlowBtn').focused);
  nodes.get('setupInstructions').close(); // Native Escape follows this same close event.
  assert(nodes.get('uploadPage').open);
  assert.equal(document.body.style.overflow,'hidden');

@@ -501,8 +501,8 @@ function wire() {
   });
   $("closeProcessFlow").addEventListener("click", () => process.close());
   process.addEventListener("close", () => {
-    document.body.style.overflow = priorOverflow;
-    $("processFlowBtn").focus({ preventScroll: true });
+    document.body.style.overflow = $("uploadPage").open ? "hidden" : priorOverflow;
+    if (!$("uploadPage").open) $("processFlowBtn").focus({ preventScroll: true });
   });
   $("search").addEventListener("input", (event) => {
     clearTimeout(searchTimer);
