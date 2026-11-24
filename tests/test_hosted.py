@@ -1,156 +1,137 @@
-"""Optional hosted adapter checks, offline with Flask and DB operations mocked."""
+"""Offline hosted upload checks. No live Salesforce connection or writes."""
+import copy
 import importlib.util
+import json
 from pathlib import Path
+import tempfile
 import unittest
-from urllib.parse import parse_qs, urlsplit
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 try:
-    spec = importlib.util.spec_from_file_location('pse_hosted_checks',Path(__file__).resolve().parents[1]/'pse-split-appfoundry/app.py')
+    spec = importlib.util.spec_from_file_location('pse_hosted_checks', Path(__file__).resolve().parents[1]/'pse-split-appfoundry/app.py')
     hosted = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(hosted)
 except ModuleNotFoundError:
     hosted = None
 
+from snapshot import validate_snapshot
+from refresh import export_snapshot
+
+
+def sample():
+    return {'generatedAt': '2026-11-24T00:00:00+00:00', 'config': {'scopeVersion': 4}, 'rows': [{
+        'id':'006000000000001AAA', 'partnerId':'001000000000001AAA', 'name':'Example',
+        'partnerRepId':'005000000000001AAA', 'stage':'08 - Closed', 'type':'Renewal',
+        'closeDate':'2026-11-24', 'nonCommissionable':False, 'partnerRepActive':True,
+        'partnerRepNeedsPopulate':False, 'partnerRepOnTeam':False, 'partnerRepOnSplit':True}]}
+
+
+class SnapshotChecks(unittest.TestCase):
+    def test_round_trip_export_omits_unknown_fields_and_recomputes_summary(self):
+        value=sample(); value['rows'][0]['unrelated']='omit'; value['summary']={'total':999}
+        with tempfile.TemporaryDirectory() as folder:
+            path=export_snapshot(value,folder)
+            result=json.loads(path.read_text())
+            self.assertEqual(validate_snapshot(result),result)
+            self.assertEqual(result['summary']['total'],1)
+            self.assertNotIn('unrelated',result['rows'][0])
+            self.assertEqual(len(list(Path(folder).iterdir())),1)
+
+    def test_invalid_file_keeps_previous_export(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=export_snapshot(sample(),folder)
+            before=path.read_bytes()
+            value=sample(); value['rows'][0]['partnerRepOnTeam']='false'
+            with self.assertRaises(ValueError): export_snapshot(value,folder)
+            self.assertEqual(path.read_bytes(),before)
+
+    def test_export_has_exact_category_union_including_partial_memberships(self):
+        value=sample()
+        for n,team,split in ((2,True,False),(3,True,True)):
+            row=copy.deepcopy(value['rows'][0]);row.update(id=f'00600000000000{n}AAA',partnerRepOnTeam=team,partnerRepOnSplit=split)
+            value['rows'].append(row)
+        with tempfile.TemporaryDirectory() as folder:
+            saved=json.loads(export_snapshot(value,folder).read_text())
+        self.assertEqual(len(saved['rows']),2)
+        self.assertEqual(saved['summary']['total'],2)
+        self.assertEqual(len(value['rows']),3)
+
+    def test_rejects_wrong_scope_duplicate_ids_missing_checks_and_bad_dates(self):
+        variants=[]
+        value=sample(); value['config']['scopeVersion']=1; variants.append(value)
+        value=sample(); value['rows']*=2; variants.append(value)
+        for key,item in [('stage','07 - Won'),('nonCommissionable',True),('type','Other'),('partnerId',None),('id','bad'),('closeDate','invalid'),('partnerRepOnSplit',None),('amount',float('nan'))]:
+            value=sample(); value['rows'][0][key]=item; variants.append(value)
+        value=sample(); value['generatedAt']='invalid'; variants.append(value)
+        for value in variants:
+            with self.subTest(value=value), self.assertRaises(ValueError): validate_snapshot(value)
+
+    def test_empty_export_and_unavailable_rep_are_supported(self):
+        value=sample(); value['rows']=[]
+        self.assertEqual(validate_snapshot(value)['summary']['total'],0)
+        value=sample(); value['rows'][0].update(partnerRepId=None,partnerRepActive=None,partnerRepNeedsPopulate=True)
+        self.assertIsNone(validate_snapshot(value)['rows'][0]['partnerRepId'])
+
 
 @unittest.skipIf(hosted is None,'Optional hosted dependencies are not installed')
 class HostedChecks(unittest.TestCase):
     def setUp(self):
-        hosted.app.config.update(TESTING=True,SECRET_KEY='offline-test-only')
-        self.client = hosted.app.test_client()
+        hosted.app.config['TESTING']=True
+        self.client=hosted.app.test_client()
 
-    def test_login_stores_and_sends_matching_state(self):
-        with patch.object(hosted,'WRITE_CONFIGURED',True):
-            response = self.client.get('/oauth/login',base_url='https://localhost')
-        self.assertEqual(response.status_code,302)
-        sent = parse_qs(urlsplit(response.location).query)['state'][0]
-        with self.client.session_transaction() as session:
-            self.assertEqual(session['oauth_state'],sent)
+    def test_upload_persists_and_reloads_without_salesforce(self):
+        saved={}
+        with patch.object(hosted,'_save_snapshot',side_effect=lambda payload:saved.update(payload)), patch.object(hosted,'_load_snapshot',side_effect=lambda:saved):
+            result=self.client.post('/api/upload',json={'manual':True,'snapshot':sample()})
+            self.assertEqual(result.status_code,200)
+            self.assertIn('uploadedAt',result.json['snapshot'])
+            with hosted.app.test_client() as reopened:
+                self.assertEqual(reopened.get('/pse-data.json').json,result.json['snapshot'])
 
-    def test_callback_requires_valid_stored_state(self):
-        with patch.object(hosted.urllib.request,'urlopen') as outbound:
-            response = self.client.get('/oauth/callback?code=fake',base_url='https://localhost')
-            self.assertIn(b'Login state mismatch',response.data)
-            outbound.assert_not_called()
+    def test_rejected_uploads_never_replace_snapshot(self):
+        with patch.object(hosted,'_save_snapshot') as save:
+            for body in ([],{}, {'snapshot':sample()}, {'manual':True,'snapshot':{'rows':[]}}):
+                self.assertEqual(self.client.post('/api/upload',json=body).status_code,400)
+            self.assertEqual(self.client.post('/api/upload',data='broken',content_type='application/json').status_code,400)
+            save.assert_not_called()
 
-    def test_matching_callback_consumes_state_without_network_when_code_missing(self):
-        with self.client.session_transaction() as session: session['oauth_state']='expected'
-        with patch.object(hosted.urllib.request,'urlopen') as outbound:
-            response = self.client.get('/oauth/callback?state=expected',base_url='https://localhost')
-            self.assertIn(b'No authorization code returned',response.data)
-            outbound.assert_not_called()
-        with self.client.session_transaction() as session:
-            self.assertNotIn('oauth_state',session)
+    def test_upload_size_limit(self):
+        with patch.object(hosted,'_save_snapshot') as save:
+            result=self.client.post('/api/upload',data=' '*(hosted.MAX_UPLOAD_BYTES+2048),content_type='application/json')
+            self.assertEqual(result.status_code,413); save.assert_not_called()
 
-    def test_callback_rejects_mismatch(self):
-        with self.client.session_transaction() as session: session['oauth_state']='expected'
-        with patch.object(hosted.urllib.request,'urlopen') as outbound:
-            response = self.client.get('/oauth/callback?code=fake&state=wrong',base_url='https://localhost')
-            self.assertIn(b'Login state mismatch',response.data)
-            outbound.assert_not_called()
+    def test_health_exposes_only_uploads_and_open_never_loads_salesforce(self):
+        with patch.object(hosted,'db') as database:
+            self.assertEqual(self.client.get('/').status_code,200)
+            result=self.client.get('/api/health').json
+            self.assertTrue(result['uploadEnabled']); self.assertFalse(result['refreshEnabled']); self.assertFalse(result['writeEnabled'])
+            database.assert_not_called()
+        self.assertEqual(self.client.get('/').headers['Cache-Control'],'no-store')
 
-    def test_refresh_rejects_automatic_requests(self):
-        with patch.object(hosted,'_require_login') as login:
-            response = self.client.post('/api/refresh',json={'force':False})
-            self.assertEqual(response.status_code,400)
-            login.assert_not_called()
+    def test_old_oauth_refresh_and_update_routes_are_disabled(self):
+        for path in ('/api/refresh','/api/write','/api/write-all','/api/preview','/api/preview-all'):
+            self.assertEqual(self.client.post(path,json={'manual':True,'confirm':'CONFIRM'}).status_code,410)
+        self.assertEqual(self.client.get('/oauth/login').status_code,410)
 
-    def test_snapshot_operations_take_database_lock(self):
-        from unittest.mock import MagicMock
-        connection=MagicMock()
-        engine=MagicMock()
-        engine.begin.return_value.__enter__.return_value=connection
-        with patch.object(hosted,'db',return_value=engine):
-            with hosted.snapshot_operation(): pass
-        self.assertIn('pg_advisory_xact_lock',str(connection.execute.call_args.args[0]))
+    def test_upload_save_uses_transaction_lock(self):
+        engine=MagicMock(); connection=engine.begin.return_value.__enter__.return_value
+        with patch.object(hosted,'db',return_value=engine): hosted._save_snapshot(validate_snapshot(sample()))
+        self.assertIn('pg_advisory_xact_lock',str(connection.execute.call_args_list[0].args[0]))
+        self.assertIn('ON CONFLICT',str(connection.execute.call_args_list[1].args[0]))
 
-    def test_appfoundry_injected_database_variables_and_special_password(self):
+    def test_database_variables_support_special_password_and_url_override(self):
         from sqlalchemy.engine import make_url
-        environment={'DB_HOST':'db.example.invalid','DB_PORT':'5432','DB_NAME':'example_db','DB_USER':'example_user','DB_PASSWORD':'test:@/password%'}
-        with patch.dict(hosted.os.environ,environment,clear=True):
-            parsed=make_url(hosted._database_url())
-        self.assertEqual(parsed.host,environment['DB_HOST'])
-        self.assertEqual(parsed.database,environment['DB_NAME'])
-        self.assertEqual(parsed.username,environment['DB_USER'])
-        self.assertEqual(parsed.password,environment['DB_PASSWORD'])
+        environment={'DB_HOST':'db.invalid','DB_PORT':'5432','DB_NAME':'example','DB_USER':'user','DB_PASSWORD':'test:@/password%'}
+        with patch.dict(hosted.os.environ,environment,clear=True): self.assertEqual(make_url(hosted._database_url()).password,environment['DB_PASSWORD'])
+        with patch.dict(hosted.os.environ,{'DATABASE_URL':'postgres://u:p@db.invalid/db'},clear=True): self.assertEqual(hosted._database_url(),'postgresql://u:p@db.invalid/db')
+        with patch.dict(hosted.os.environ,{},clear=True),self.assertRaisesRegex(RuntimeError,'Postgres is required'): hosted._database_url()
 
-    def test_database_url_override_is_preserved(self):
-        value='postgres://fake:fake@example.invalid/example'
-        with patch.dict(hosted.os.environ,{'DATABASE_URL':value},clear=True):
-            self.assertEqual(hosted._database_url(),value.replace('postgres://','postgresql://',1))
-
-    def test_unconfigured_database_reports_requirement(self):
-        with patch.dict(hosted.os.environ,{},clear=True):
-            with self.assertRaisesRegex(RuntimeError,'Postgres is required'):
-                hosted._database_url()
-
-    def test_standalone_bundle_loads_without_repository_and_matches_ui(self):
-        import tempfile,shutil,sys
+    def test_standalone_bundle_contains_exact_ui_and_validator(self):
+        import shutil,sys
         root=Path(__file__).resolve().parents[1]
-        with tempfile.TemporaryDirectory(prefix='pse-standalone-') as temp,patch.dict(sys.modules):
-            target=Path(temp)/'main.py'
-            shutil.copy2(root/'pse-split-appfoundry/standalone_app.py',target)
-            spec=importlib.util.spec_from_file_location('pse_isolated_bundle',target)
-            bundle=importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(bundle)
+        with tempfile.TemporaryDirectory() as folder,patch.dict(sys.modules):
+            target=Path(folder)/'app.py'; shutil.copy2(root/'pse-split-appfoundry/standalone_app.py',target)
+            spec=importlib.util.spec_from_file_location('pse_isolated',target); bundle=importlib.util.module_from_spec(spec);spec.loader.exec_module(bundle)
             self.assertEqual(bundle.INDEX_HTML,(root/'docs/index.html').read_text())
             self.assertEqual(bundle.APP_JS,(root/'docs/app.js').read_text())
-            with bundle.app.test_client() as client:
-                self.assertEqual(client.get('/').status_code,200)
-                self.assertEqual(client.get('/app.js').data.decode(),bundle.APP_JS)
-
-    def test_manual_refresh_job_saves_snapshot_and_status(self):
-        import json,threading
-        from contextlib import contextmanager
-        from test_workflow import SalesforceStub
-        records=SalesforceStub(blank=True).record
-        store={'jobs':{},'snapshot':None}
-        class Result:
-            def __init__(self,row=None): self.row=row
-            def mappings(self): return self
-            def first(self): return self.row
-        class Database:
-            @contextmanager
-            def begin(self): yield self
-            def execute(self,statement,params=None):
-                sql=str(statement); params=params or {}
-                if 'pg_advisory_xact_lock' in sql: return Result()
-                if 'INSERT INTO pse_split_jobs' in sql:
-                    store['jobs'][params['id']]={'status':'queued','message':'queued','result':None,'sid':params['sid']}
-                elif 'UPDATE pse_split_jobs' in sql:
-                    store['jobs'][params['id']].update({key:params[key] for key in ('status','message','result')})
-                elif 'SELECT status, message, result FROM pse_split_jobs' in sql:
-                    row=store['jobs'].get(params['id'])
-                    return Result(row if row and row['sid']==params['sid'] else None)
-                elif 'INSERT INTO pse_split_snapshot' in sql:
-                    store['snapshot']=params['payload']
-                elif 'SELECT payload FROM pse_split_snapshot' in sql:
-                    return Result((store['snapshot'],) if store['snapshot'] else None)
-                else: raise AssertionError(sql)
-                return Result()
-        def query(session_id,sql,label='records'):
-            if 'SELECT SplitTypeId FROM OpportunitySplit' in sql: return [{'SplitTypeId':'OverlayId'}]
-            if 'FROM Opportunity WHERE' in sql: return [records]
-            if 'FROM OpportunityTeamMember' in sql or 'FROM OpportunitySplit' in sql: return []
-            raise AssertionError(sql)
-        finished=threading.Event()
-        original=hosted._run_refresh
-        def run_job(*args):
-            try: original(*args)
-            finally: finished.set()
-        with self.client.session_transaction() as session: session['sf_session_id']='offline-session'
-        with patch.object(hosted,'db',return_value=Database()),patch.object(hosted,'_session_record',return_value={'instance_url':'https://example.invalid'}),patch.object(hosted,'sf_query',side_effect=query) as queries,patch.object(hosted,'sf_request') as writes,patch.object(hosted,'_run_refresh',side_effect=run_job):
-            response=self.client.post('/api/refresh',json={'manual':True},base_url='https://localhost')
-            self.assertEqual(response.status_code,202)
-            self.assertTrue(finished.wait(timeout=5))
-            job_id=response.get_json()['jobId']
-            response=self.client.get('/api/refresh-status?jobId='+job_id,base_url='https://localhost')
-            self.assertEqual(response.status_code,200)
-            self.assertEqual(response.get_json()['status'],'complete')
-            before=queries.call_count
-            snapshot=self.client.get('/pse-data.json',base_url='https://localhost').get_json()
-            self.assertEqual(snapshot['summary']['total'],1)
-            self.assertTrue(snapshot['rows'][0]['partnerRepNeedsPopulate'])
-            self.assertEqual(snapshot['config']['stage'],'08 - Closed')
-            self.assertEqual(queries.call_count,before)
-            writes.assert_not_called()
+            self.assertEqual(bundle.validate_snapshot(sample())['summary']['total'],1)

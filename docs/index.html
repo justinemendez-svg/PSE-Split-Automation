@@ -107,14 +107,9 @@
   <div class="spacer"></div>
   <span id="refreshMsg" class="sub" aria-live="polite"></span><span id="who" class="sub"></span>
   <button class="ghost" id="processFlowBtn">Process Flow</button>
-  <button class="ghost hidden" id="connectSfBtn">Connect to Salesforce</button><button class="ghost hidden" id="refreshBtn">Refresh</button><button id="csvBtn">Export CSV</button>
+  <button class="ghost hidden" id="uploadDataBtn">Upload the data</button><button class="ghost hidden" id="refreshBtn">Refresh</button><button id="csvBtn">Export CSV</button>
 </header>
 <main>
-  <section id="salesforceConnection" class="card hidden" style="margin-bottom:20px" aria-label="Salesforce connection">
-    <h2 style="margin-top:0">Connect to Salesforce</h2>
-    <p>Connect your Salesforce account to refresh data and update Opportunities. Signing in does not refresh data or change Salesforce records.</p>
-    <p id="connectionMsg" role="status" aria-live="polite">Use Connect to Salesforce above to sign in through Salesforce or Okta.</p>
-  </section>
   <div id="status" class="status">Loading dashboard data…</div>
   <section id="dashboard" class="hidden">
     <div class="cards" role="group" aria-label="Filter Opportunities by PSE assignment">
@@ -183,9 +178,9 @@
     </section>
     <section class="process-help"><h3>Using the dashboard</h3>
       <p>The list shows closed Opportunities with a Partner tagged where the PSE still needs to be added to the Opportunity Team, Opportunity Splits, or both. When the PSE field is blank, these checks use the tagged Partner’s Owner.</p>
-      <h4>Refresh</h4>
+      <div data-hosted-upload class="hidden"><h4>Upload the data</h4><p>Run the local Salesforce export command, then click <b>Upload the data</b> and choose the generated <b>pse-data.json</b>. Uploading replaces the shared saved snapshot. Opening or reloading this dashboard shows the last uploaded file; Google Drive changes are not imported automatically.</p><p>Use the local dashboard for Salesforce updates. The hosted dashboard supports the worklist, filters, and CSV export.</p></div><div data-local-actions><h4>Refresh</h4>
       <p>Click <b>Refresh</b> to pull the latest data from Salesforce. The dashboard updates its counts and list based on the current Opportunity, Partner, PSE, Team, and Split records in SFDC. Data refreshes only when this button is clicked. Opening or reloading the page shows the last saved data.</p>
-      <h4>Clickable boxes</h4>
+      </div><h4>Clickable boxes</h4>
       <p>Click a box to filter the list by category:</p>
       <ol>
         <li><b>Opportunities with tagged PSE:</b> Closed Opportunities with a Partner and an existing PSE, where that PSE is missing from the Opportunity Team, Opportunity Splits, or both.</li>
@@ -203,10 +198,29 @@
         <dt>PSE Status</dt><dd>Choose Active, Inactive, or both. If a PSE is tagged, this is that user’s status. If the PSE field is blank, this is the Partner Owner’s status.</dd>
       </dl>
       <p>The box counts reflect your search and filters. <b>All Opportunities to update = tagged PSE category + no tagged PSE category</b> for the same selections.</p>
-      <h4>Update and export</h4>
+      <div data-local-actions><h4>Update and export</h4>
       <p><b>Update in Salesforce</b> applies the process to one Opportunity after confirmation. <b>Update all N in Salesforce</b> applies it to all matching results across all pages, using your selected box, search, and filters. <b>Export CSV</b> downloads that same filtered list.</p>
       <p>Refresh only reads Salesforce. Update actions preserve an existing PSE, populate a blank PSE from the tagged Partner’s Owner, and add missing Team and Split entries. Each Opportunity uses its own PSE. Existing entries are preserved; Salesforce errors are reported so you can retry the remaining steps.</p>
-      <p><b>Scope:</b> Commissionable Renewal, New Business, and Expansion Opportunities at Stage exactly <b>08 - Closed</b>, with a Partner tagged.</p>
+      </div><p><b>Scope:</b> Commissionable Renewal, New Business, and Expansion Opportunities at Stage exactly <b>08 - Closed</b>, with a Partner tagged.</p>
+    </section>
+  </div>
+</dialog>
+<dialog id="uploadPage" class="process-page" aria-labelledby="uploadTitle">
+  <div class="process-bar"><div class="process-brand">PSE Split Automation</div><button id="closeUploadPage" class="ghost" autofocus>Close · Back to dashboard ×</button></div>
+  <div class="process-content">
+    <div class="process-intro"><h2 id="uploadTitle">Upload the data</h2><p>Load your Salesforce export into the dashboard</p></div>
+    <section class="process-help">
+      <h3>1 · Export the latest Salesforce data locally</h3>
+      <p>Run <code>python3 export_for_upload.py --org prod</code> from the repository folder. This reads Salesforce using your existing local CLI session and saves <b>pse-data.json</b> in Google Drive:</p>
+      <p style="overflow-wrap:anywhere"><code>GTM Ops/MSS/PSE_Split_Automation/pse-data.json</code></p>
+      <h3>2 · Choose the exported file</h3>
+      <p>Select <b>pse-data.json</b> from that folder. Use the complete JSON export; the dashboard’s filtered CSV export cannot be uploaded here. Maximum size: 25 MB.</p>
+      <input id="uploadFile" type="file" accept=".json,application/json" aria-label="Salesforce dashboard data file" />
+      <h3>3 · Upload to the dashboard</h3>
+      <p>This replaces the saved data for everyone using this AppFoundry dashboard. It does not update Salesforce. To show later Salesforce changes, rerun the local command and upload the new file.</p>
+      <button id="confirmUploadBtn" disabled>Upload data to dashboard</button>
+      <p id="uploadMsg" class="msg" role="status" aria-live="polite">Choose pse-data.json to preview the extraction date and record count.</p>
+      <p>Close this page or press Escape to return to the dashboard. Your search and filters are preserved where available in the uploaded data.</p>
     </section>
   </div>
 </dialog>

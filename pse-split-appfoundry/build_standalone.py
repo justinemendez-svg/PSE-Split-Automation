@@ -18,8 +18,10 @@ embedded_lines = f"INDEX_HTML = {INDEX.read_text(encoding='utf-8')!r}\nAPP_JS = 
 if asset_lines not in source:
     raise SystemExit("Could not find the asset insertion point in app.py")
 source = source.replace(asset_lines, embedded_lines, 1)
-workflow_source = (PROJECT / "workflow.py").read_text(encoding="utf-8")
-import_line = "from workflow import CLOSED_STAGE, REP_FIELDS, PARTNER_FIELD, SCOPE_VERSION, execute, in_scope, is_complete, rep_state, summary"
-source = source.replace(import_line, "import types\n_workflow = types.ModuleType('workflow')\nexec(" + repr(workflow_source) + ", _workflow.__dict__)\nsys.modules['workflow'] = _workflow\n" + import_line)
+embedded_modules = 'import types\n'
+for name in ('workflow', 'snapshot'):
+    module_source = (PROJECT / (name + '.py')).read_text(encoding='utf-8')
+    embedded_modules += f"_module = types.ModuleType({name!r})\nexec({module_source!r}, _module.__dict__)\nsys.modules[{name!r}] = _module\n"
+source = source.replace('from snapshot import MAX_UPLOAD_BYTES, validate_snapshot', embedded_modules + 'from snapshot import MAX_UPLOAD_BYTES, validate_snapshot')
 OUTPUT.write_text(source, encoding="utf-8")
 print(f"Built {OUTPUT}")

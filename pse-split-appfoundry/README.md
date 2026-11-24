@@ -1,84 +1,52 @@
 # PSE Split Automation for AppFoundry
 
-Deploy the current dashboard as a Python/Flask application. The package embeds exactly the same HTML, JavaScript, and workflow used by the local dashboard. It uses PostgreSQL for the saved snapshot and Salesforce OAuth for each user’s Salesforce connection.
+The hosted dashboard uses manual JSON uploads. No Salesforce OAuth credentials, Salesforce CLI installation, or direct Salesforce connection are required in AppFoundry. Local Salesforce updates continue to work through the local dashboard.
 
-The AppFoundry portal options below were inspected on November 24, 2026 at [portal.idp.zenai-apps.com](https://portal.idp.zenai-apps.com/catalog).
+## Refresh the export locally
 
-## What stays the same
+From the cloned repository, with an existing Salesforce CLI login:
 
-- Dashboard layout, three clickable categories, search, multi-select filters, CSV export, and Process Flow.
-- Scope: commissionable Renewal, New Business, and Expansion Opportunities at Stage **08 - Closed**, with a Partner tagged.
-- Preserve an existing PSE; fill a blank PSE from the Partner’s Owner when Update is confirmed.
-- Add missing Team members as **Partner Account Executive / Read Only**. If the rep has no Split of any type, add **Overlay / Partner Account Executive / 100.00%**.
-- **Refresh runs only when clicked.** Opening or reloading the page displays the saved data.
-- Individual and bulk updates require confirmation and use the signed-in Salesforce user’s access.
+```bash
+python3 export_for_upload.py --org prod
+```
 
-The hosted app stores data in PostgreSQL and signs into Salesforce through OAuth. The local dashboard continues to use its local snapshot and Salesforce CLI login.
+This runs the same read-only Salesforce extraction as the local dashboard and writes a validated `pse-data.json` to:
 
-## Build the upload code
+```text
+/Users/justine.mendez/Library/CloudStorage/GoogleDrive-justine.mendez@zendesk.com/Shared drives/GTM Ops/MSS/PSE_Split_Automation/pse-data.json
+```
 
-From the repository root:
+It also refreshes the repository's local snapshot. Run it again whenever new Salesforce data is needed; nothing is scheduled automatically. Teammates can specify their own synced Google Drive location:
+
+```bash
+python3 export_for_upload.py --org prod --export-dir "/path/to/PSE_Split_Automation"
+```
+
+The portable export includes the complete dashboard worklist: closed, commissionable Renewal, New Business, and Expansion Opportunities with a tagged Partner where the PSE or proposed Partner Owner is missing from the Team or Splits. Already-complete membership records are omitted because no dashboard category displays them. The local snapshot retains all checked records. The compact JSON file contains no Salesforce access tokens or login credentials. It is operational Salesforce data; keep it in the intended shared folder and app audience.
+
+## Upload the data
+
+1. Open the hosted dashboard and click **Upload the data**.
+2. Choose the generated **pse-data.json**. Review the extraction date and record count.
+3. Click **Upload data to dashboard**. The server validates the complete file before replacing the saved shared snapshot.
+4. Click **Close · Back to dashboard** or press Escape. The counts, list, filters and CSV use the uploaded data.
+
+The maximum file size is 25 MB. The filtered CSV exported by the dashboard is not an upload file. Malformed JSON, old scope versions, duplicate Opportunity IDs, invalid membership checks and out-of-scope rows are rejected without replacing the saved snapshot. A valid empty export is supported.
+
+Opening/reloading shows the saved uploaded snapshot. Changing the Google Drive file does not update AppFoundry automatically: rerun the local command and upload the new JSON. Uploaded data persists in PostgreSQL and is shared by users of this app.
+
+The hosted dashboard supports categories, search, multi-select filters, Process Flow, CSV export and links to Salesforce. It does not run Salesforce updates or Salesforce refreshes. Use the local app for individual/bulk Salesforce updates. Uploads never write to Salesforce.
+
+## Build and deploy
 
 ```bash
 python3 pse-split-appfoundry/build_standalone.py
 ```
 
-Use the complete contents of **`standalone_app.py`** as the Main Application Code. This bundle already contains the UI and shared workflow, so it works without the repository’s other source files. Do not paste `docs/index.html` or the unbundled `app.py` as the entire application.
+Use **Create → Python Web App → Flask** in AppFoundry. Paste the complete `standalone_app.py` as Main Application Code and the complete `requirements.txt` as Requirements. Leave Files to Bundle empty. Enable PostgreSQL Database, leave AI Model Access off, and leave Internal API Only off for normal browser access.
 
-## Create the app in the portal
+The bundle embeds the exact UI, workflow and snapshot validation code. For an existing app, replace its deployed `app.py` with the rebuilt standalone bundle and rebuild. Preserve its database. GitHub updates do not automatically update the separate Gitea deployment repository.
 
-1. Open **Create → Python Web App**.
-2. **Provide App Details:** use an available app name such as `pse-split-automation`, enter a description, and choose **Flask**.
-3. **Paste Your Python Code:** paste the complete `standalone_app.py` contents into **Main Application Code**. Paste `requirements.txt` into **Requirements**.
-4. **Upload Artifacts:** the standalone bundle needs no additional artifacts. Do not upload local snapshots, logs, Salesforce CLI authentication files, or credentials.
-5. **Database Requirements:** enable **Include PostgreSQL Database**.
-6. **AI & Model Access:** leave **Enable AI Model Access** unchecked; this dashboard does not require it.
-7. **Deployment Configuration:** leave **Internal API Only (Service-to-Service)** unchecked so users can open the dashboard through AppFoundry’s normal user access route.
-8. Review and create the app. Record its actual HTTPS app URL for the Salesforce callback configuration below.
+The portal injects `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD`; PostgreSQL connection URL variables are also supported. Both `psycopg2-binary` and `psycopg[binary]` are included to support the configured connection driver. If a driver is missing, update requirements and rebuild.
 
-The portal provides `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD`. The package recognizes these automatically. Existing PostgreSQL URL variables and `PG*` variables are also supported; no database password needs to be placed in source code.
-
-Use the complete requirements file: it includes both `psycopg2-binary` and `psycopg[binary]` for PostgreSQL connections. If the data endpoint reports `No module named 'psycopg'`, update the deployed requirements and rebuild the app. A source-only update or browser reload will not install the missing driver.
-
-## Configure Salesforce access once
-
-A Salesforce administrator must provide an approved OAuth Connected App for this hosted dashboard, with OAuth scopes **api** and **refresh_token**. Its callback URL must exactly match:
-
-```text
-https://<actual-appfoundry-app-host>/oauth/callback
-```
-
-In the new app’s catalog page, open **Secrets Management → Add Secret** and configure:
-
-| Secret key | Purpose |
-| --- | --- |
-| `FLASK_SECRET_KEY` | A persistent random secret, shared by all app workers, for browser sessions and encryption of stored Salesforce tokens. Preserve it across redeployments. |
-| `SF_CLIENT_ID` | The Salesforce Connected App consumer key. |
-| `SF_CLIENT_SECRET` | The Salesforce Connected App consumer secret. |
-| `SF_REDIRECT_URI` | The exact HTTPS callback URL registered in Salesforce. |
-
-The built-in defaults use `https://zendesk.my.salesforce.com` for login and `https://zendesk.lightning.force.com` for record links. Set `SF_LOGIN_URL` and `SF_LIGHTNING_URL` only when a different org is intended. An explicit `DATABASE_URL` is optional because the portal already injects its database variables.
-
-Restart or redeploy as required by AppFoundry after adding the secrets so the application receives them. Never paste secret values into Main Application Code, Requirements, Upload Artifacts, GitHub, or chat.
-
-## How Refresh works after deployment
-
-When a user opens the hosted dashboard without a Salesforce session, it shows **Connect to Salesforce**. Clicking it opens the Salesforce/Okta login window. Successful sign-in returns to the dashboard and enables the existing actions; it does not pull data or write Salesforce records. If OAuth credentials are missing, the connection prompt explains that setup is required.
-
-1. The user clicks **Refresh**.
-2. If necessary, a Salesforce login popup opens. The user signs in through the approved Salesforce/SSO flow.
-3. The app reads the scoped Opportunities, Partner Owners, Team members, and Split members from Salesforce.
-4. It saves the resulting snapshot in PostgreSQL. Progress is shown beside the Refresh button.
-5. The dashboard reloads that saved snapshot and updates the counts and list.
-
-Refresh does not populate fields or add Team members or Splits. Those changes occur only through the confirmed Update actions. A new app has no local snapshot to inherit; its first data load uses the Refresh button.
-
-The hosted snapshot is shared by the app’s users. Keep the app’s audience and the refreshing Salesforce user’s record visibility aligned with the intended dashboard audience. Each update still uses the updating user’s Salesforce access.
-
-## Verification and updates
-
-Before treating a deployment as ready, verify Salesforce login, one manual Refresh, progress completion, persistence after reopening the app, and the existing filter behavior. Live Salesforce writes require a separately authorized validation; the offline checks do not perform them. The actual deployed environment must also allow Salesforce HTTPS traffic and enough request/runtime time for the intended bulk workload.
-
-The package has offline checks for OAuth state, manual-only refresh, AppFoundry database-variable mapping, a standalone import without the repository, identical UI assets, and a mocked Refresh → PostgreSQL snapshot → dashboard reload cycle. These establish package behavior, not a completed live deployment.
-
-GitHub updates do not automatically replace code pasted into AppFoundry. After changing the dashboard or shared workflow, regenerate `standalone_app.py` and update the hosted app through its deployment process. Preserve the PostgreSQL database and stable `FLASK_SECRET_KEY` when updating.
+Salesforce OAuth setup is no longer used. No `SF_CLIENT_ID`, `SF_CLIENT_SECRET`, `SF_REDIRECT_URI`, or `FLASK_SECRET_KEY` is needed for this upload workflow. AppFoundry's existing access gateway still controls access to the hosted app.

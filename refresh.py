@@ -15,6 +15,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import datetime as dt
 import json
 import os
+from pathlib import Path
+import tempfile
 import subprocess
 import sys
 import time
@@ -156,6 +158,7 @@ def summarize(active_rows: list[dict]) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Refresh the PSE Split Automation dashboard.")
     parser.add_argument("--org", help="Salesforce CLI org alias or username")
+    parser.add_argument("--export-dir", help="Also save a portable pse-data.json in this folder for manual dashboard upload")
     args = parser.parse_args()
 
     token, instance = sf_session(args.org)
@@ -200,11 +203,37 @@ def main() -> None:
         json.dump(data, output, ensure_ascii=False, indent=2)
 
     os.replace(DATA_OUT + ".tmp", DATA_OUT)
+    if args.export_dir:
+        exported = export_snapshot(data, args.export_dir)
+        print(f"Saved upload file: {exported}")
     print(f"Checked {len(records):,} closed opportunities with a tagged Partner.")
     print(f"Partner opportunities: {summary['total']:,}")
     print(f"PSE field, Opportunity Team and Splits already complete: {summary['tagged']:,}")
     print(f"PSE to update: {summary['needsUpdate']:,}")
     print(f"Wrote local dashboard data to {os.path.relpath(DATA_OUT, HERE)}")
+
+
+def export_snapshot(data, directory):
+    from snapshot import MAX_UPLOAD_BYTES, validate_snapshot
+    checked = validate_snapshot(data)
+    # These are exactly the records eligible for the dashboard's three categories.
+    checked['rows'] = [row for row in checked['rows'] if not row['partnerRepOnTeam'] or not row['partnerRepOnSplit']]
+    payload = validate_snapshot(checked)
+    contents = json.dumps(payload, ensure_ascii=False, separators=(',', ':'), allow_nan=False)
+    if len(contents.encode('utf-8')) > MAX_UPLOAD_BYTES:
+        raise ValueError('The dashboard worklist export exceeds the 25 MB upload limit. The previous export was kept.')
+    folder = Path(directory).expanduser()
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / 'pse-data.json'
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=folder, suffix='.tmp', delete=False) as output:
+            temporary = Path(output.name)
+            output.write(contents)
+        os.replace(temporary, target)
+    finally:
+        if temporary and temporary.exists(): temporary.unlink()
+    return target
 
 
 if __name__ == "__main__":

@@ -46,6 +46,12 @@ Fiscal Quarter–Year is derived from Opportunity Close Date using Zendesk’s F
 - **Refresh** reads Salesforce and rebuilds the snapshot. It makes no Salesforce changes. Data refresh happens only when someone clicks **Refresh**. Opening or reloading the dashboard displays the saved snapshot, even if it is old. A missing snapshot prompts the user to click Refresh.
 - **Process Flow** opens the full workflow and instructions. Close or Escape returns to the dashboard with filters and position preserved.
 
+## AppFoundry upload version
+
+The hosted app uses **Upload the data**, with no Salesforce OAuth connection. Run `python3 export_for_upload.py --org prod` locally to read Salesforce and save `pse-data.json` in `GTM Ops/MSS/PSE_Split_Automation` in the configured synced Google Drive. Open the upload page, choose that file and click **Upload data to dashboard**; Close or Escape returns to the dashboard. Uploads replace the shared saved snapshot and never change Salesforce records.
+
+The hosted app retains search, category boxes, multi-select filters, Process Flow, and CSV export. Use the local dashboard for Salesforce updates. See [AppFoundry setup and upload instructions](pse-split-appfoundry/README.md).
+
 ## Clone and run
 
 Requirements: Python 3, Salesforce CLI, and your own Salesforce access to the records and update operations. The local app uses only the Python standard library.
