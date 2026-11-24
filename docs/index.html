@@ -80,7 +80,7 @@
   .process-bar h2 { margin:0; font-size:18px; } .process-bar button { margin-left:auto; white-space:nowrap; }
   .process-content { max-width:1100px; margin:auto; padding:32px 24px 50px; }
   .process-intro { max-width:760px; } .process-intro h2 { font-size:30px; line-height:1.2; margin:0 0 12px; }
-  .scope-tags { display:flex; flex-wrap:wrap; gap:8px; margin:20px 0; } .scope-tags span { background:#e4efed; color:var(--teal); padding:5px 11px; border-radius:20px; font-size:12px; font-weight:650; }
+  .process-scope { margin:20px 0; color:var(--teal); }
   .flow-step { position:relative; background:white; border:1px solid var(--line); border-radius:14px; padding:22px; }
   .flow-step h3 { margin:0 0 10px; display:flex; align-items:center; gap:12px; font-size:17px; }
   .step-number { display:inline-grid; place-items:center; width:32px; height:32px; border-radius:50%; background:var(--teal); color:white; flex-shrink:0; }
@@ -154,7 +154,7 @@
   <div class="process-bar"><div><h2 id="processTitle">Process Flow</h2><div class="sub">PSE Split Automation · How the dashboard works</div></div><button id="closeProcessFlow" class="ghost" autofocus>Close · Back to dashboard ×</button></div>
   <div class="process-content">
     <div class="process-intro"><h2>One Partner. One PSE.<br>Check each step in order.</h2><p>The dashboard finds closed Opportunities (Stage <b>08 - Closed</b>) that need a Partner Sales Rep field, Opportunity Team, or Opportunity Split update. The same rep is used throughout the process.</p></div>
-    <div class="scope-tags"><span>Commissionable only</span><span>Renewal</span><span>New Business</span><span>Expansion</span><span>Stage: 08 - Closed</span><span>All close dates</span></div>
+    <p class="process-scope"><b>Filter:</b> Closed Opportunity · With Partner Tagged · Stage: 08 - Closed</p>
     <section class="flow-step"><h3><span class="step-number">1</span> Does the closed Opportunity have a Partner tagged?</h3>
       <p>Start with Opportunities whose Stage is exactly <b>08 - Closed</b>. Check whether the closed Opportunity has a tagged <b>Partner</b>.</p>
       <div class="branches"><div class="branch"><strong>Partner is tagged → Continue</strong><p>Use the tagged Partner for this process.</p></div><div class="branch"><strong>No Partner → Stop</strong><p>Skip this Opportunity. It does not appear in the worklist.</p></div></div>
