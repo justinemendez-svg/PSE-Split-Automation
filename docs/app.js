@@ -10,7 +10,7 @@ const CLOSED_STAGE = "08 - Closed";
 const state = {
   rows: [], rowsById: new Map(), summary: {}, type: new Set(), segment: new Set(), region: new Set(), pseStatus: new Set(), fiscalQuarter: new Set(),
   filterOptions: { type: OPPORTUNITY_TYPES, segment: [], region: [], pseStatus: [], fiscalQuarter: [] }, query: "",
-  sortKey: "closeDate", sortDir: -1, updatePage: 1, pseCategory: "all",
+  sortKey: "closeDate", sortDir: -1, updatePage: 1, pseCategory: "all", busy: false,
   writeApi: { enabled: false, refreshEnabled: false, org: null, authMode: "local", loggedIn: true },
 };
 const $ = (id) => document.getElementById(id);
@@ -98,11 +98,12 @@ function hydrate(data) {
   wire();
   if ((data.config || {}).scopeVersion !== SCOPE_VERSION) {
     state.rows = [];
+    state.rowsById.clear();
     $("dashboard").classList.add("hidden");
     const status = $("status");
     status.className = "status";
     status.textContent = "The closed Opportunity flow (08 - Closed) needs a fresh Salesforce snapshot. Click Refresh to load the current worklist.";
-    return;
+    return false;
   }
   state.rows = (data.rows || []).map((row) => ({ ...row, fiscalQuarter: fiscalQuarterFromDate(row.closeDate) }));
   state.rowsById = new Map(state.rows.map((row) => [row.id, row]));
@@ -117,6 +118,7 @@ function hydrate(data) {
   $("status").classList.add("hidden");
   $("dashboard").classList.remove("hidden");
   render();
+  return true;
 }
 
 async function detectApi() {
@@ -147,7 +149,7 @@ function matchesCategory(row, category) {
 }
 
 function filteredRows(category = state.pseCategory) {
-  let rows = state.rows.filter((row) => row.nonCommissionable === false && row.stage === CLOSED_STAGE &&
+  let rows = state.rows.filter((row) => row.inScope !== false && row.nonCommissionable === false && row.stage === CLOSED_STAGE &&
     OPPORTUNITY_TYPES.includes(row.type) && row.partnerId && !rowComplete(row));
   ["type", "segment", "region", "pseStatus", "fiscalQuarter"].forEach((key) => {
     const selected = state[key];
@@ -172,7 +174,7 @@ function filteredRows(category = state.pseCategory) {
 function opportunityCard(row) {
   const href = SF_LIGHTNING_URL + "/lightning/r/Opportunity/" + encodeURIComponent(row.id) + "/view";
   const button = state.writeApi.enabled
-    ? '<button class="btn-update" data-update="' + esc(row.id) + '"' + (row.blockedReason ? ' disabled' : '') + '>Update in Salesforce →</button>'
+    ? '<button class="btn-update" data-update="' + esc(row.id) + '"' + ((state.busy || row.blockedReason) ? ' disabled' : '') + '>Update in Salesforce →</button>'
     : '<a class="btn-update" href="' + esc(href) + '" target="_blank" rel="noopener">Open in Salesforce →</a>';
   const teamAlready = row.partnerRepOnTeam
     ? '<div class="also">Already on the Opportunity Team — no change needed.</div>' : '';
@@ -237,13 +239,13 @@ function renderUpdate() {
   const start = (state.updatePage - 1) * PAGE_SIZE;
   $("bulkCount").textContent = rows.length.toLocaleString();
   $("updateAllBtn").textContent = "Update all " + rows.length.toLocaleString() + " in Salesforce →";
-  $("updateAllBtn").disabled = !state.writeApi.enabled || rows.length === 0;
+  $("updateAllBtn").disabled = state.busy || !state.writeApi.enabled || rows.length === 0;
   $("actionList").innerHTML = rows.slice(start, start + PAGE_SIZE).map((row) => opportunityCard(row)).join("");
   wireCardUpdates("actionList");
   $("actionPageInfo").textContent = rows.length ? `Page ${state.updatePage} of ${pageCount}` : "";
   $("filterCount").textContent = fmtCount(rows.length) + " Opportunities to update";
-  $("actionPrev").disabled = state.updatePage <= 1;
-  $("actionNext").disabled = state.updatePage >= pageCount;
+  $("actionPrev").disabled = state.busy || state.updatePage <= 1;
+  $("actionNext").disabled = state.busy || state.updatePage >= pageCount;
   $("actionEmpty").classList.toggle("hidden", rows.length > 0);
   $("actionList").classList.toggle("hidden", rows.length === 0);
 }
@@ -254,7 +256,10 @@ function render() {
 
 async function postJson(path, body) {
   const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  const result = await response.json();
+  let result;
+  try { result = await response.json(); }
+  catch (_) { throw new Error("The server response could not be read. Check Salesforce status before retrying an update."); }
+  if (response.status === 401 || result.needsLogin) state.writeApi.loggedIn = false;
   if (!response.ok) throw new Error(result.error || ("HTTP " + response.status));
   return result;
 }
@@ -294,14 +299,23 @@ function setRowState(oppId, value) {
 
 }
 
+function setBusy(value) {
+  state.busy = value;
+  document.querySelectorAll('#search, .filter-trigger, .filter-menu input, .filter-actions button, [data-pse-category], #actionPrev, #actionNext, #csvBtn, #refreshBtn, #updateAllBtn, button[data-update]').forEach((control) => { control.disabled = value; });
+  if (!value) renderUpdate();
+}
+
 async function updateOne(oppId, button) {
+  if (state.busy) return;
+  setBusy(true);
   button.disabled = true;
-  const message = document.querySelector('[data-msg="' + CSS.escape(oppId) + '"]');
+  let message = document.querySelector('[data-msg="' + CSS.escape(oppId) + '"]');
   message.textContent = "Checking Salesforce…";
   message.className = "msg";
   try {
     if (!(await ensureWriteLogin())) throw new Error("Salesforce login is required before updating.");
     const preview = await postJson("/api/preview", { oppId });
+    setRowState(oppId, preview);
     if (preview.alreadyComplete) {
       setRowState(oppId, preview); renderUpdate(); return;
     }
@@ -325,13 +339,21 @@ async function updateOne(oppId, button) {
     const current = document.querySelector('[data-msg="' + CSS.escape(oppId) + '"]');
     if (current) { current.textContent = error.message; current.className = "msg err"; }
     button.disabled = false;
+  } finally {
+    const text = document.querySelector('[data-msg="' + CSS.escape(oppId) + '"]')?.textContent;
+    const error = document.querySelector('[data-msg="' + CSS.escape(oppId) + '"]')?.classList.contains('err');
+    setBusy(false);
+    const current = document.querySelector('[data-msg="' + CSS.escape(oppId) + '"]');
+    if (current && text) { current.textContent = text; current.className = error ? 'msg err' : 'msg'; }
   }
 }
 
 async function updateAll() {
+  if (state.busy) return;
   const rows = filteredRows();
   const ids = rows.map((row) => row.id).filter(Boolean);
   if (!ids.length) return;
+  setBusy(true);
   const button = $("updateAllBtn");
   const message = $("bulkMsg");
   button.disabled = true;
@@ -370,17 +392,19 @@ async function updateAll() {
     message.className = "msg err";
     message.textContent = "Update failed: " + error.message;
   } finally {
-    button.disabled = false;
+    setBusy(false);
   }
 }
 
 async function reloadSnapshot() {
   const response = await fetch("pse-data.json?_=" + Date.now(), { cache: "no-store" });
   if (!response.ok) throw new Error("Could not reload the dashboard snapshot.");
-  hydrate(await response.json());
+  if (!hydrate(await response.json())) throw new Error("The saved data does not match the current dashboard scope. Click Refresh again.");
 }
 
 async function refreshData() {
+  if (state.busy) return;
+  setBusy(true);
   const button = $("refreshBtn");
   const message = $("refreshMsg");
   button.disabled = true; button.textContent = "Refreshing…";
@@ -407,7 +431,7 @@ async function refreshData() {
   } catch (error) {
     if (error.message.toLowerCase().includes("salesforce session expired")) state.writeApi.loggedIn = false;
     message.className = "sub err"; message.textContent = "Refresh failed: " + error.message;
-  } finally { button.disabled = false; button.textContent = "Refresh"; }
+  } finally { button.textContent = "Refresh"; setBusy(false); }
 }
 
 function csvCell(value) { return '"' + String(value == null ? "" : value).replace(/"/g, '""') + '"'; }
@@ -446,7 +470,9 @@ function wire() {
   });
   $("search").addEventListener("input", (event) => {
     clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => { state.query = event.target.value.trim().toLowerCase(); state.updatePage = 1; render(); }, 160);
+    state.query = event.target.value.trim().toLowerCase();
+    state.updatePage = 1;
+    searchTimer = setTimeout(render, 160);
   });
   [["quarterFilter", "fiscalQuarter"], ["typeFilter", "type"], ["segmentFilter", "segment"], ["regionFilter", "region"], ["pseStatusFilter", "pseStatus"]].forEach(([id, key]) => {
     const component = $(id);

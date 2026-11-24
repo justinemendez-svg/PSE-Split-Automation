@@ -22,6 +22,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from pathlib import Path
 
 from flask import Flask, Response, jsonify, redirect, request, session
@@ -349,13 +350,22 @@ def _set_job(job_id: str, status: str, message: str, result: dict | None = None)
                     "result": json.dumps(result, ensure_ascii=False) if result is not None else None})
 
 
+@contextmanager
+def snapshot_operation():
+    # PostgreSQL serializes snapshot operations across Gunicorn workers and sessions.
+    with db().begin() as connection:
+        connection.execute(text("SELECT pg_advisory_xact_lock(7418773)"))
+        yield
+
+
 def _run_refresh(job_id: str, session_id: str) -> None:
     try:
         _set_job(job_id, "running", "Reading commissionable Renewal, New Business, and Expansion opportunities…")
-        payload = _refresh_data(session_id, lambda message: _set_job(job_id, "running", message))
+        with snapshot_operation():
+            payload = _refresh_data(session_id, lambda message: _set_job(job_id, "running", message))
         _set_job(job_id, "complete", "Dashboard refreshed.", {"summary": payload["summary"], "generatedAt": payload["generatedAt"]})
     except Exception as error:
-        message = "Salesforce session expired. Click Refresh data and sign in again." if isinstance(error, NeedsLogin) else str(error)[:1200]
+        message = "Salesforce session expired. Click Refresh and sign in again." if isinstance(error, NeedsLogin) else str(error)[:1200]
         _set_job(job_id, "failed", message or "Salesforce refresh failed.")
 
 
@@ -400,7 +410,7 @@ def _update_snapshot_states(states: dict[str, dict]) -> None:
 
 
 def _run_workflow(session_id, ids, write=False):
-    with WRITE_LOCK:
+    with WRITE_LOCK, snapshot_operation():
         result = execute(ids, _eligible_ids(), lambda soql: sf_query(session_id, soql),
                          lambda method, path, body, **kw: sf_request(session_id, method, path, body, **kw),
                          lambda: _split_type_id(session_id), write=write)
@@ -426,6 +436,12 @@ def _bulk_write(session_id, ids):
 def _audit(event: dict) -> None:
     with db().begin() as cx:
         cx.execute(text("INSERT INTO pse_split_audit (event) VALUES (:event)"), {"event": json.dumps(event, ensure_ascii=False)})
+
+
+@app.before_request
+def validate_json_body():
+    if request.method == "POST" and not isinstance(request.get_json(silent=True), dict):
+        return _json_error("Request body must be a JSON object.", 400)
 
 
 @app.get("/")
@@ -464,11 +480,11 @@ def health():
 def oauth_login():
     if not WRITE_CONFIGURED:
         return _json_error("Set SF_CLIENT_ID and SF_CLIENT_SECRET in AppFoundry first.", 503)
-    state["oauth_state"] = secrets.token_urlsafe(24)
+    session["oauth_state"] = secrets.token_urlsafe(24)
     session["oauth_next"] = request.args.get("next", "/")
     params = {"response_type": "code", "client_id": SF_CLIENT_ID,
               "redirect_uri": _redirect_uri(), "scope": "api refresh_token",
-              "state": state["oauth_state"]}
+              "state": session["oauth_state"]}
     return redirect(SF_LOGIN_URL + "/services/oauth2/authorize?" + urllib.parse.urlencode(params))
 
 
@@ -485,7 +501,9 @@ def _oauth_result(error: str | None = None):
 def oauth_callback():
     if request.args.get("error"):
         return _oauth_result(request.args.get("error_description") or request.args["error"])
-    if request.args.get("state") != session.get("oauth_state"):
+    expected_state = session.pop("oauth_state", None)
+    returned_state = request.args.get("state", "")
+    if not expected_state or not secrets.compare_digest(returned_state, expected_state):
         return _oauth_result("Login state mismatch")
     code = request.args.get("code")
     if not code:

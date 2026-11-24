@@ -6,7 +6,7 @@ const source = fs.readFileSync('docs/app.js', 'utf8').replace(/load\(\);\s*$/, '
 async function checkLoad(ok, config) {
   const calls = [];
   const elements = new Map();
-  const context = { document: { getElementById: (id) => {
+  const context = { document: { querySelectorAll: () => [], getElementById: (id) => {
     if (!elements.has(id)) elements.set(id, { className: '', textContent: '' });
     return elements.get(id);
   } }, fetch: async (path, options) => {
@@ -28,13 +28,13 @@ async function checkLoad(ok, config) {
   await checkLoad(false, {});
   const requests = [];
   const elements = new Map();
-  const context = { document: { getElementById: (id) => {
+  const context = { document: { querySelectorAll: () => [], getElementById: (id) => {
     if (!elements.has(id)) elements.set(id, {});
     return elements.get(id);
   } }, requests };
   vm.createContext(context);
   vm.runInContext(source, context);
-  vm.runInContext('ensureWriteLogin = async () => true; reloadSnapshot = async () => {}; postJson = async (path, body) => { requests.push({path, body}); return {summary:{total:2}}; };', context);
+  vm.runInContext('renderUpdate = () => {}; ensureWriteLogin = async () => true; reloadSnapshot = async () => {}; postJson = async (path, body) => { requests.push({path, body}); return {summary:{total:2}}; };', context);
   await vm.runInContext('refreshData()', context);
   assert.equal(requests.length, 1);
   assert.equal(requests[0].path, '/api/refresh');

@@ -70,82 +70,123 @@ def read_states(ids, query):
 
 
 def execute(ids, allowed, query, rest, split_type, write=False):
-    """Preview or apply the same ordered rules; re-read each stage and report partial failures."""
-    requested = [value for value in dict.fromkeys(ids) if value in allowed]
+    """Preview or apply ordered rules; isolate failures and verify actual Salesforce state."""
+    unique_ids = list(dict.fromkeys(ids))
+    requested = [value for value in unique_ids if value in allowed]
     states, errors, ids_to_add = {}, [], []
     counts = {'fieldPopulated': 0, 'teamAdded': 0, 'splitAdded': 0, 'alreadyComplete': 0,
-              'changed': 0, 'excluded': len(ids) - len(requested), 'inactive': 0}
-    failed, succeeded = set(), set()
+              'excluded': len(unique_ids) - len(requested), 'inactive': 0}
+    failed, succeeded, changed = set(), set(), set()
+    resolved_split_type = None
+
+    def recheck(batch):
+        records, current = read_states(batch, query)
+        for key in batch:
+            if key not in current:
+                changed.add(key)
+                states[key] = {'inScope': False, 'reason': 'Opportunity no longer meets the closed Partner scope or is no longer accessible.'}
+        for key, value in current.items():
+            value['inScope'] = True
+            changed.discard(key)
+        return records, current
+
+    def record_error(key, object_name, detail):
+        failed.add(key)
+        errors.append({'oppId': key, 'object': object_name, 'message': str(detail)[:500]})
 
     def insert_many(object_name, records, counter):
-        if not records: return
-        status, result = rest('POST', f'/services/data/{API_VERSION}/composite/sobjects',
-                              {'allOrNone': False, 'records': [{'attributes': {'type': object_name}, **row} for _, row in records]})
-        responses = result if isinstance(result, list) and len(result) == len(records) else []
-        if status not in (200, 201) or not responses:
-            raise RuntimeError(str(result)[:500])
-        for (opp_id, _), response in zip(records, responses):
-            if response.get('success'): counts[counter] += 1
+        if not records:
+            return
+        try:
+            status, result = rest('POST', f'/services/data/{API_VERSION}/composite/sobjects',
+                {'allOrNone': False, 'records': [{'attributes': {'type': object_name}, **row} for _, row in records]})
+            if status not in (200, 201) or not isinstance(result, list) or len(result) != len(records):
+                raise RuntimeError(f'Salesforce {object_name} response could not be confirmed: {str(result)[:350]}')
+        except (RuntimeError, OSError, ValueError) as error:
+            for key, _ in records:
+                record_error(key, object_name, error)
+            return
+        for (key, _), response in zip(records, result):
+            if isinstance(response, dict) and response.get('success'):
+                counts[counter] += 1
             else:
-                failed.add(opp_id)
-                errors.append({'oppId': opp_id, 'object': object_name, 'message': str(response.get('errors', response))[:500]})
+                record_error(key, object_name, response.get('errors', response) if isinstance(response, dict) else response)
+
+    def reconcile(batch, current):
+        states.update(current)
+        for key in batch:
+            if key in changed:
+                failed.discard(key)
+                succeeded.discard(key)
+            elif key in current and is_complete(current[key]):
+                succeeded.add(key)
+                failed.discard(key)
+            else:
+                failed.add(key)
 
     for start in range(0, len(requested), 200):
         batch = requested[start:start + 200]
         try:
-            records, current = read_states(batch, query)
-            counts['changed'] += len(batch) - len(current)
-            for opp_id, value in current.items():
-                if is_complete(value): counts['alreadyComplete'] += 1
-                elif value['blockedReason']: errors.append({'oppId': opp_id, 'message': value['blockedReason']})
-                else: ids_to_add.append(opp_id)
+            records, current = recheck(batch)
+            for key, value in current.items():
+                if is_complete(value):
+                    counts['alreadyComplete'] += 1
+                elif value['blockedReason']:
+                    record_error(key, 'User', value['blockedReason'])
+                else:
+                    ids_to_add.append(key)
             if not write:
                 states.update(current)
                 continue
-            # Populate blank fields only, conditional on the Opportunity remaining unchanged.
-            for opp_id, value in current.items():
-                if value['blockedReason']:
-                    failed.add(opp_id)
+            # Populate only blank fields. A concurrent Opportunity edit rejects this write.
+            for key, value in current.items():
+                if key in failed or not value['partnerRepNeedsPopulate']:
                     continue
-                if not value['partnerRepNeedsPopulate']: continue
-                modified = records[opp_id].get('LastModifiedDate')
-                if not modified:
-                    failed.add(opp_id)
-                    errors.append({'oppId': opp_id, 'message': 'Missing record version; refresh before populating the PSE.'})
-                    continue
-                timestamp = dt.datetime.strptime(modified, '%Y-%m-%dT%H:%M:%S.%f%z').astimezone(dt.timezone.utc)
-                status, response = rest('PATCH', f'/services/data/{API_VERSION}/sobjects/Opportunity/{opp_id}',
-                                        {'Partner_Sales_Rep__c': value['partnerRepId']},
-                                        headers={'If-Unmodified-Since': format_datetime(timestamp, usegmt=True)})
-                if status in (200, 204): counts['fieldPopulated'] += 1
-                else:
-                    failed.add(opp_id)
-                    errors.append({'oppId': opp_id, 'object': 'Opportunity', 'message': str(response)[:500]})
-            # Re-read to see assignment changes and any Salesforce automation triggered by the field update.
-            _, current = read_states(batch, query)
+                try:
+                    modified = records[key].get('LastModifiedDate')
+                    if not modified:
+                        raise ValueError('Missing record version; refresh before populating the PSE.')
+                    timestamp = dt.datetime.strptime(modified, '%Y-%m-%dT%H:%M:%S.%f%z').astimezone(dt.timezone.utc)
+                    status, response = rest('PATCH', f'/services/data/{API_VERSION}/sobjects/Opportunity/{key}',
+                        {'Partner_Sales_Rep__c': value['partnerRepId']},
+                        headers={'If-Unmodified-Since': format_datetime(timestamp, usegmt=True)})
+                    if status not in (200, 204):
+                        raise RuntimeError(str(response))
+                    counts['fieldPopulated'] += 1
+                except (RuntimeError, OSError, ValueError) as error:
+                    record_error(key, 'Opportunity', error)
+            # Re-read after every stage to observe assignment changes and Salesforce automation.
+            _, current = recheck(batch)
             members = [(key, {'OpportunityId': key, 'UserId': value['partnerRepId'],
                         'TeamMemberRole': TEAM_ROLE, 'OpportunityAccessLevel': 'Read'})
                        for key, value in current.items() if key not in failed and not value['blockedReason']
                        and not value['partnerRepNeedsPopulate'] and not value['partnerRepOnTeam']]
             insert_many('OpportunityTeamMember', members, 'teamAdded')
-            _, current = read_states(batch, query)
-            splits = [(key, {'OpportunityId': key, 'SplitOwnerId': value['partnerRepId'],
-                       'SplitTypeId': split_type(), 'Opportunity_Team_Role__c': TEAM_ROLE, 'SplitPercentage': 100})
-                      for key, value in current.items() if key not in failed and not value['blockedReason']
-                      and not value['partnerRepNeedsPopulate'] and value['partnerRepOnTeam'] and not value['partnerRepOnSplit']]
-            insert_many('OpportunitySplit', splits, 'splitAdded')
-            _, current = read_states(batch, query)
-            states.update(current)
-            for key, value in current.items():
-                if is_complete(value): succeeded.add(key); failed.discard(key)
-                else: failed.add(key)
+            _, current = recheck(batch)
+            pending_splits = [(key, value) for key, value in current.items()
+                              if key not in failed and not value['blockedReason']
+                              and not value['partnerRepNeedsPopulate'] and value['partnerRepOnTeam']
+                              and not value['partnerRepOnSplit']]
+            if pending_splits:
+                if resolved_split_type is None:
+                    resolved_split_type = split_type()
+                splits = [(key, {'OpportunityId': key, 'SplitOwnerId': value['partnerRepId'],
+                           'SplitTypeId': resolved_split_type, 'Opportunity_Team_Role__c': TEAM_ROLE, 'SplitPercentage': 100})
+                          for key, value in pending_splits]
+                insert_many('OpportunitySplit', splits, 'splitAdded')
+            _, current = recheck(batch)
+            reconcile(batch, current)
         except (RuntimeError, OSError, ValueError) as error:
-            if not write: raise
-            failed.update(batch)
+            if not write:
+                raise
             errors.append({'message': str(error)[:500]})
+            failed.update(batch)
+            # A timeout can occur after Salesforce accepts a write. Reconcile before reporting failure.
             try:
-                _, latest = read_states(batch, query)
-                states.update(latest)
-            except (RuntimeError, OSError, ValueError): pass
-    return {**counts, 'states': states, 'idsToAdd': ids_to_add, 'succeeded': len(succeeded),
-            'succeededIds': sorted(succeeded), 'failed': len(failed), 'errors': errors[:50]}
+                _, latest = recheck(batch)
+                reconcile(batch, latest)
+            except (RuntimeError, OSError, ValueError):
+                pass
+    return {**counts, 'changed': len(changed), 'states': states, 'idsToAdd': ids_to_add,
+            'succeeded': len(succeeded), 'succeededIds': sorted(succeeded),
+            'failed': len(failed), 'errors': errors[:50]}

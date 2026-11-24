@@ -50,43 +50,47 @@ def current_session() -> tuple[str, str]:
 
 
 def refresh_session() -> tuple[str, str]:
-    token, instance = sf_session(SESSION["org"])
+    try:
+        token, instance = sf_session(SESSION["org"])
+    except SystemExit as error:
+        raise RuntimeError("Salesforce login is unavailable. Sign in with Salesforce CLI and retry.") from error
     with SESSION_LOCK:
         SESSION["token"], SESSION["instance"] = token, instance
     return token, instance
 
 
 def sf_rest(method: str, path: str, body: dict | None = None, headers: dict | None = None):
-    token, instance = current_session()
     data = json.dumps(body).encode("utf-8") if body is not None else None
-    request = urllib.request.Request(instance + path, data=data, method=method)
-    request.add_header("Authorization", "Bearer " + token)
-    request.add_header("Content-Type", "application/json")
-    for name, value in (headers or {}).items(): request.add_header(name, value)
-    try:
-        with urllib.request.urlopen(request, timeout=90) as response:
-            raw = response.read().decode("utf-8")
-            return response.status, (json.loads(raw) if raw else {})
-    except urllib.error.HTTPError as error:
-        raw = error.read().decode("utf-8", errors="replace")
+    for attempt in range(2):
+        token, instance = current_session()
+        request = urllib.request.Request(instance + path, data=data, method=method,
+                    headers={"Authorization": "Bearer " + token, "Content-Type": "application/json", **(headers or {})})
         try:
-            details = json.loads(raw)
-        except json.JSONDecodeError:
-            details = {"message": raw[:500]}
-        if error.code == 401:
-            token, instance = refresh_session()
-            request = urllib.request.Request(instance + path, data=data, method=method)
-            request.add_header("Authorization", "Bearer " + token)
-            request.add_header("Content-Type", "application/json")
-            for name, value in (headers or {}).items(): request.add_header(name, value)
             with urllib.request.urlopen(request, timeout=90) as response:
                 raw = response.read().decode("utf-8")
                 return response.status, (json.loads(raw) if raw else {})
-        if isinstance(details, list):
-            message = "; ".join(item.get("message", "") for item in details)
-        else:
-            message = details.get("message", str(details))
-        return error.code, {"message": message, "details": details}
+        except urllib.error.HTTPError as error:
+            raw = error.read().decode("utf-8", errors="replace")
+            if error.code == 401 and attempt == 0:
+                refresh_session()
+                continue
+            try:
+                details = json.loads(raw)
+            except json.JSONDecodeError:
+                details = {"message": raw[:500]}
+            message = "; ".join(str(item.get("message", "")) for item in details) if isinstance(details, list) else str(details.get("message", details))
+            return error.code, {"message": message, "details": details}
+
+
+def query_current(soql):
+    token, instance = current_session()
+    try:
+        return sf_query(soql, token, instance)
+    except RuntimeError as error:
+        if "(401)" not in str(error) and "INVALID_SESSION_ID" not in str(error):
+            raise
+        token, instance = refresh_session()
+        return sf_query(soql, token, instance)
 
 
 def current_split_type_id() -> str:
@@ -127,8 +131,8 @@ def allowed_missing_ids() -> set[str]:
 def run_workflow(opp_ids, write=False):
     # All write routes share the same lock and execution path.
     with WRITE_LOCK, REFRESH_LOCK:
-        token, instance = refresh_session()
-        result = execute(opp_ids, allowed_missing_ids(), lambda soql: sf_query(soql, token, instance),
+        refresh_session()
+        result = execute(opp_ids, allowed_missing_ids(), query_current,
                          sf_rest, current_split_type_id, write=write)
         update_local_snapshot(result["states"])
         if write:
@@ -209,7 +213,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _body(self):
         length = int(self.headers.get("Content-Length", "0"))
-        if length > 4_000_000:
+        if length < 0 or length > 4_000_000:
             raise ValueError("request too large")
         return json.loads(self.rfile.read(length) or b"{}")
 
@@ -256,7 +260,7 @@ class Handler(BaseHTTPRequestHandler):
         path = urllib.parse.urlsplit(self.path).path
         try:
             payload = self._body()
-        except (ValueError, json.JSONDecodeError):
+        except (ValueError, UnicodeError):
             return self.send_json(400, {"error": "Invalid request body"})
         if not isinstance(payload, dict):
             return self.send_json(400, {"error": "Request body must be an object"})
@@ -272,7 +276,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/preview":
             try:
                 return self._preview(str(payload.get("oppId") or ""))
-            except RuntimeError as error:
+            except (RuntimeError, OSError, ValueError) as error:
                 return self.send_json(502, {"error": str(error)})
         if path == "/api/preview-all":
             try:

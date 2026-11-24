@@ -79,7 +79,7 @@ See [TEAMMATE_SETUP.md](TEAMMATE_SETUP.md) for the teammate checklist.
 | `serve_local.py` | Local dashboard server, previews, confirmed updates, and audit logging. |
 | `docs/index.html`, `docs/app.js` | Current dashboard and Process Flow UI. |
 | `serve.command`, `install_local_service.py`, `uninstall_local_service.py` | macOS service setup and removal. |
-| `tests/test_workflow.py` | Offline workflow checks; no Salesforce writes. |
+| `tests/test_workflow.py` | Offline workflow, failure handling, session, and HTTP checks; no Salesforce writes. |
 | `pse-split-appfoundry/` | Optional hosted package sharing the same workflow and UI. |
 
 `docs/pse-data.json`, Salesforce credentials, logs, and `writes.log.jsonl` are excluded from Git. Each clone generates its own snapshot using the signed-in user’s access. No live Salesforce data is bundled in the repository.
@@ -91,6 +91,9 @@ python3 -m unittest discover -s tests -v
 node --check docs/app.js
 node tests/test_manual_refresh.js
 node tests/test_categories.js
+node tests/test_ui_flow.js
 ```
+
+The Python suite uses a temporary localhost server and mocked Salesforce operations. Hosted adapter checks run when the optional Flask/SQLAlchemy/cryptography dependencies are installed; otherwise they are skipped. JavaScript checks exercise the categories, fiscal calendar, UI update paths, and manual-only refresh with synthetic records.
 
 The optional [AppFoundry package](pse-split-appfoundry/README.md) uses PostgreSQL and Salesforce OAuth. It is not required for the complete local dashboard.
