@@ -13,7 +13,6 @@ import socket
 import subprocess
 import sys
 import threading
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -41,7 +40,6 @@ SESSION_LOCK = threading.Lock()
 SNAPSHOT_LOCK = threading.Lock()
 REFRESH_LOCK = threading.Lock()
 WRITE_LOCK = threading.Lock()
-AUTO_REFRESH_MAX_AGE_SECONDS = 30 * 60
 
 
 def current_session() -> tuple[str, str]:
@@ -215,33 +213,17 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("request too large")
         return json.loads(self.rfile.read(length) or b"{}")
 
-    def _refresh(self, force: bool = True):
-        def latest_snapshot_response(skipped: bool = False):
-            data = json.loads(DATA.read_text(encoding="utf-8"))
-            return self.send_json(200, {"ok": True, "skipped": skipped,
-                                        "summary": data.get("summary", {})})
-
-        def snapshot_is_fresh() -> bool:
-            try:
-                return (time.time() - DATA.stat().st_mtime < AUTO_REFRESH_MAX_AGE_SECONDS
-                        and json.loads(DATA.read_text()).get("config", {}).get("scopeVersion") == SCOPE_VERSION)
-            except (OSError, ValueError):
-                return False
-
-        if not force and snapshot_is_fresh():
-            return latest_snapshot_response(skipped=True)
-
+    def _refresh(self):
         command = [sys.executable, str(HERE / "refresh.py")]
         if SESSION["org"]:
             command += ["--org", SESSION["org"]]
         with REFRESH_LOCK:
-            if not force and snapshot_is_fresh():
-                return latest_snapshot_response(skipped=True)
             result = subprocess.run(command, cwd=HERE, capture_output=True, text=True, timeout=900)
             if result.returncode:
                 detail = (result.stderr or result.stdout or "Salesforce refresh failed").strip()
                 return self.send_json(502, {"error": detail[-1500:]})
-            return latest_snapshot_response()
+            data = json.loads(DATA.read_text(encoding="utf-8"))
+            return self.send_json(200, {"ok": True, "summary": data.get("summary", {})})
 
     def _preview(self, opp_id: str):
         if not ID_PATTERN.fullmatch(opp_id):
@@ -279,8 +261,10 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(payload, dict):
             return self.send_json(400, {"error": "Request body must be an object"})
         if path == "/api/refresh":
+            if payload.get("manual") is not True:
+                return self.send_json(400, {"error": "Click Refresh in the updated dashboard to refresh Salesforce data."})
             try:
-                return self._refresh(force=payload.get("force") is not False)
+                return self._refresh()
             except subprocess.TimeoutExpired:
                 return self.send_json(504, {"error": "Salesforce refresh timed out after 15 minutes"})
             except (OSError, json.JSONDecodeError) as error:

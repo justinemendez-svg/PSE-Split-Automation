@@ -4,7 +4,7 @@ This is a separate AppFoundry deployment package for **PSE Split Automation**. I
 
 ## Refresh behavior
 
-**Refresh data** uses Salesforce OAuth and performs a read-only pull of commissionable **Renewal**, **New Business**, and **Expansion** Opportunities at Stage exactly **08 - Closed** with a tagged **Partner** (`Referring_Partner__c`). The shared workflow resolves the existing PSE or proposes the Partner Account’s Owner when the PSE field is blank. Team and Split membership are checked, the snapshot is saved in PostgreSQL, and the open dashboard updates. Refresh progress appears beside the button.
+**Refresh** runs only when clicked. Opening or reloading the page displays the saved snapshot. The button uses Salesforce OAuth and performs a read-only pull of commissionable **Renewal**, **New Business**, and **Expansion** Opportunities at Stage exactly **08 - Closed** with a tagged **Partner** (`Referring_Partner__c`). The shared workflow resolves the existing PSE or proposes the Partner Account’s Owner when the PSE field is blank. Team and Split membership are checked, the snapshot is saved in PostgreSQL, and the open dashboard updates. Refresh progress appears beside the button.
 
 Individual and bulk updates use the signed-in Salesforce user’s access. After confirmation, each Opportunity preserves its existing PSE or fills a blank PSE from its Partner’s Owner, adds a missing Team member as **Partner Account Executive / Read Only**, and adds an **Overlay / Partner Account Executive / 100.00%** split only if that rep has no existing Split of any type. Existing entries are preserved. Inactive users remain visible and can be filtered. The same scope and ordered checks are used by the local app.
 

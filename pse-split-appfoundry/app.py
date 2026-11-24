@@ -510,6 +510,8 @@ def oauth_callback():
 
 @app.post("/api/refresh")
 def refresh():
+    if (request.get_json(silent=True) or {}).get("manual") is not True:
+        return _json_error("Click Refresh in the updated dashboard to refresh Salesforce data.", 400)
     sid, error = _require_login()
     if error:
         return error

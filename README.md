@@ -41,7 +41,7 @@ Fiscal Quarter–Year is derived from Opportunity Close Date using Zendesk’s F
 - **Update in Salesforce** applies the workflow to one Opportunity after confirmation.
 - **Update all N in Salesforce** applies it to all results across all pages using the selected box, search, and filters. Each Opportunity uses its own PSE or Partner Owner.
 - **Export CSV** exports that filtered worklist, including fiscal quarter.
-- **Refresh data** reads Salesforce and rebuilds the snapshot. It makes no Salesforce changes. Opening the dashboard automatically refreshes a missing or stale snapshot (older than 30 minutes).
+- **Refresh** reads Salesforce and rebuilds the snapshot. It makes no Salesforce changes. Data refresh happens only when someone clicks **Refresh**. Opening or reloading the dashboard displays the saved snapshot, even if it is old. A missing snapshot prompts the user to click Refresh.
 - **Process Flow** opens the full workflow and instructions. Close or Escape returns to the dashboard with filters and position preserved.
 
 ## Clone and run
@@ -77,7 +77,6 @@ See [TEAMMATE_SETUP.md](TEAMMATE_SETUP.md) for the teammate checklist.
 | `serve_local.py` | Local dashboard server, previews, confirmed updates, and audit logging. |
 | `docs/index.html`, `docs/app.js` | Current dashboard and Process Flow UI. |
 | `serve.command`, `install_local_service.py`, `uninstall_local_service.py` | macOS service setup and removal. |
-| `auto_refresh.sh` | Optional manual or externally scheduled read-only refresh of the checkout’s snapshot. Not scheduled by default; the installed app has a separate snapshot. |
 | `tests/test_workflow.py` | Offline workflow checks; no Salesforce writes. |
 | `pse-split-appfoundry/` | Optional hosted package sharing the same workflow and UI. |
 
@@ -88,6 +87,7 @@ Run offline checks with:
 ```bash
 python3 -m unittest discover -s tests -v
 node --check docs/app.js
+node tests/test_manual_refresh.js
 ```
 
 The optional [AppFoundry package](pse-split-appfoundry/README.md) uses PostgreSQL and Salesforce OAuth. It is not required for the complete local dashboard.

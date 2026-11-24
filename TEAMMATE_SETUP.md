@@ -22,7 +22,7 @@
    python3 serve_local.py --org prod
    ```
 
-5. Open [http://localhost:8773](http://localhost:8773). The dashboard automatically loads Salesforce data if its local snapshot is missing or more than 30 minutes old; **Refresh data** forces an immediate refresh. To remove the macOS background service later, run `python3 uninstall_local_service.py`.
+5. Open [http://localhost:8773](http://localhost:8773). The dashboard displays its saved snapshot. Salesforce data refreshes only when you click **Refresh**, including the first time you open the app. To remove the macOS background service later, run `python3 uninstall_local_service.py`.
 
 The worklist includes only commissionable **Renewal**, **New Business**, and **Expansion** Opportunities at Stage **08 - Closed** with a tagged **Partner**, and a missing PSE field, Team membership, or Split membership. Keep an existing PSE; if blank, populate it from the tagged Partner’s Owner when Update is confirmed. Add missing Team members as **Partner Account Executive** with **Read Only** access. If the rep has no Split of any type, create a **100% Overlay** split with **Opportunity Team Role = Partner Account Executive**. Existing PSE values, Team entries, and Splits are preserved. User status is displayed rather than excluding inactive reps.
 

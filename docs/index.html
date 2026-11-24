@@ -97,11 +97,11 @@
 </head>
 <body>
 <header>
-  <div><h1>PSE Split Automation</h1><div class="sub">08 - Closed Opportunities · Partner → PSE → Team → Splits</div></div>
+  <div><h1>PSE Split Automation</h1></div>
   <div class="spacer"></div>
   <span id="refreshMsg" class="sub" aria-live="polite"></span><span id="who" class="sub"></span>
   <button class="ghost" id="processFlowBtn">Process Flow</button>
-  <button class="ghost hidden" id="refreshBtn">Refresh data</button><button id="csvBtn">Export CSV</button>
+  <button class="ghost hidden" id="refreshBtn">Refresh</button><button id="csvBtn">Export CSV</button>
 </header>
 <main>
   <div id="status" class="status">Loading dashboard data…</div>
@@ -173,7 +173,7 @@
     <section class="process-help"><h3>Using the dashboard</h3>
       <p><b>Clickable boxes:</b> “Opportunities with tagged PSE” shows Partner Opportunities with a populated PSE that is missing from the Team, Splits, or both. “Partner but no tagged PSE” shows a blank PSE whose proposed Partner Owner is missing from the Team, Splits, or both. “All Opportunities to update” also includes a blank PSE field when the Owner is already on both the Team and Splits. Counts follow your search and Fiscal Quarter–Year, Type, Segment, Region, and PSE Status filters. Update all and Export CSV use the selected box.</p>
       <p><b>What appears:</b> Closed Opportunities (Stage <b>08 - Closed</b>) in scope with a Partner and at least one missing step. Fully configured Opportunities count in the totals and leave the update list.</p>
-      <p><b>Refresh data:</b> Reads the latest Salesforce records and rebuilds the dashboard. It does not populate fields or add Team members or Splits.</p>
+      <p><b>Refresh:</b> Reads the latest Salesforce records and rebuilds the dashboard only when clicked. Opening or reloading the page displays the saved snapshot and does not start a Salesforce refresh. It does not populate fields or add Team members or Splits.</p>
       <p><b>Update in Salesforce:</b> Applies this process to that Opportunity after confirmation.</p>
       <p><b>Update all N in Salesforce:</b> Applies this process to all matching Opportunities across all pages, using your current search and Fiscal Quarter–Year, Type, Segment, Region, and PSE Status selections. Each Opportunity uses its own existing PSE or its own Partner’s Owner.</p>
       <p><b>Existing records:</b> The dashboard rechecks Salesforce before each stage and adds missing entries. It preserves populated PSE values and existing Team and Split entries.</p>

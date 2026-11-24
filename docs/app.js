@@ -4,7 +4,6 @@ const TEAM_ROLE = "Partner Account Executive";
 const SPLIT_TYPE = "Overlay";
 const SPLIT_PERCENTAGE = 100;
 const PAGE_SIZE = 100;
-const AUTO_REFRESH_MAX_AGE_MS = 30 * 60 * 1000;
 const OPPORTUNITY_TYPES = ["Renewal", "New Business", "Expansion"];
 const SCOPE_VERSION = 4;
 const CLOSED_STAGE = "08 - Closed";
@@ -56,23 +55,19 @@ async function load() {
       const status = $("status");
       status.className = state.writeApi.refreshEnabled ? "status" : "status err";
       status.textContent = state.writeApi.refreshEnabled
-        ? "No Salesforce snapshot yet. Loading the first snapshot automatically…"
+        ? "No Salesforce snapshot yet. Click Refresh to load data."
         : "Dashboard data is not available. Run `python3 refresh.py --org prod`, then reload. (HTTP " + response.status + ")";
-      if (state.writeApi.refreshEnabled && state.writeApi.loggedIn) void refreshData(false);
       return;
     }
     const data = await response.json();
     hydrate(data);
     await detectApi();
-    const generatedAt = Date.parse(data.generatedAt || "");
-    const stale = (data.config || {}).scopeVersion !== SCOPE_VERSION || !Number.isFinite(generatedAt) || Date.now() - generatedAt >= AUTO_REFRESH_MAX_AGE_MS;
-    if (stale && state.writeApi.refreshEnabled && state.writeApi.loggedIn) void refreshData(false);
   } catch (error) {
     await detectApi();
     const status = $("status");
     status.className = state.writeApi.refreshEnabled ? "status" : "status err";
     status.textContent = state.writeApi.refreshEnabled
-      ? "Dashboard snapshot could not be loaded. Click Refresh data to fetch it from Salesforce. (" + error.message + ")"
+      ? "Dashboard snapshot could not be loaded. Click Refresh to fetch it from Salesforce. (" + error.message + ")"
       : window.location.protocol === "file:"
         ? "Open the dashboard through its local server. Double-click serve.command, then open http://localhost:8773 in Chrome."
         : "Dashboard data is not available. Run `python3 refresh.py --org prod`, then reload. (" + error.message + ")";
@@ -106,7 +101,7 @@ function hydrate(data) {
     $("dashboard").classList.add("hidden");
     const status = $("status");
     status.className = "status";
-    status.textContent = "The closed Opportunity flow (08 - Closed) needs a fresh Salesforce snapshot. Refreshing will load the current worklist.";
+    status.textContent = "The closed Opportunity flow (08 - Closed) needs a fresh Salesforce snapshot. Click Refresh to load the current worklist.";
     return;
   }
   state.rows = (data.rows || []).map((row) => ({ ...row, fiscalQuarter: fiscalQuarterFromDate(row.closeDate) }));
@@ -385,17 +380,15 @@ async function reloadSnapshot() {
   hydrate(await response.json());
 }
 
-async function refreshData(force = true) {
+async function refreshData() {
   const button = $("refreshBtn");
   const message = $("refreshMsg");
   button.disabled = true; button.textContent = "Refreshing…";
   message.className = "sub";
-  message.textContent = force
-    ? "Refreshing Salesforce… This can take a few minutes."
-    : "Automatically refreshing Salesforce… This can take a few minutes.";
+  message.textContent = "Refreshing Salesforce… This can take a few minutes.";
   try {
     if (!(await ensureWriteLogin())) throw new Error("Salesforce login is required to refresh the dashboard.");
-    const result = await postJson("/api/refresh", { force });
+    const result = await postJson("/api/refresh", { manual: true });
     if (result.jobId) {
       let complete = false;
       while (!complete) {
@@ -410,13 +403,11 @@ async function refreshData(force = true) {
     }
     await reloadSnapshot();
     message.className = "sub ok";
-    message.textContent = result.skipped
-      ? "Showing the latest Salesforce data · refreshed within the last 30 minutes"
-      : "Refreshed · " + fmtCount((result.summary || state.summary).total) + " in-scope Partner Opportunities";
+    message.textContent = "Refreshed · " + fmtCount((result.summary || state.summary).total) + " in-scope Partner Opportunities";
   } catch (error) {
     if (error.message.toLowerCase().includes("salesforce session expired")) state.writeApi.loggedIn = false;
     message.className = "sub err"; message.textContent = "Refresh failed: " + error.message;
-  } finally { button.disabled = false; button.textContent = "Refresh data"; }
+  } finally { button.disabled = false; button.textContent = "Refresh"; }
 }
 
 function csvCell(value) { return '"' + String(value == null ? "" : value).replace(/"/g, '""') + '"'; }
@@ -509,7 +500,7 @@ function wire() {
   $("actionPrev").addEventListener("click", () => { state.updatePage = Math.max(1, state.updatePage - 1); renderUpdate(); });
   $("actionNext").addEventListener("click", () => { state.updatePage += 1; renderUpdate(); });
   $("updateAllBtn").addEventListener("click", updateAll);
-  $("refreshBtn").addEventListener("click", () => refreshData(true));
+  $("refreshBtn").addEventListener("click", () => refreshData());
   $("csvBtn").addEventListener("click", exportCsv);
 }
 
