@@ -29,7 +29,7 @@ The portable export includes the complete dashboard worklist: closed, commission
 First-time users can open **View first-time setup instructions** from either Process Flow’s Upload the data section or the Upload page. Both links open the same guide, with the complete Codex setup prompt, a Copy button, required access, file checks, and manual upload steps. **Close · Back to Upload** or Escape returns to the Upload page; that page’s Close button returns to the dashboard. Opening the guide does not start an export or upload a file.
 
 1. Open the hosted dashboard and click **Upload the data**.
-   For fresh data after setup, use **Copy download prompt**, paste it into your Codex chat, and send it. The prompt asks Codex to locate your repository and synced folder, run a fresh export with your own Salesforce account, and report the file date, count and path. Wait for the export and Drive sync to finish.
+   For fresh data after setup, use **Copy refresh command**, paste it into your Codex chat, and send it. The prompt asks Codex to locate your repository and synced folder, run a fresh export with your own Salesforce account, and report the file date, count and path. Wait for the export and Drive sync to finish.
 2. Choose the generated **pse-data.json**. Review the extraction date and record count.
 3. Click **Upload data to dashboard**. The server validates the complete file before replacing the saved shared snapshot.
 4. Click **Close · Back to dashboard** or press Escape. The counts, list, filters and CSV use the uploaded data.
