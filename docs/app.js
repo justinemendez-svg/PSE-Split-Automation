@@ -143,7 +143,7 @@ function matchesCategory(row, category) {
   const missingMembership = !row.partnerRepOnTeam || !row.partnerRepOnSplit;
   if (category === "tagged") return !row.partnerRepNeedsPopulate && missingMembership;
   if (category === "untagged") return !!row.partnerRepNeedsPopulate && missingMembership;
-  return true;
+  return missingMembership;
 }
 
 function filteredRows(category = state.pseCategory) {

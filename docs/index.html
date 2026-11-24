@@ -92,6 +92,11 @@
   .flow-step dl { display:grid; grid-template-columns:max-content 1fr; gap:6px 16px; margin:12px 0 0; } .flow-step dt { color:var(--muted); } .flow-step dd { margin:0; font-weight:600; }
   .process-help { margin-top:28px; background:white; padding:22px; border-radius:14px; border:1px solid var(--line); }
   .process-help h3 { margin:0 0 12px; } .process-help p { margin:10px 0; }
+  .process-help h4 { margin:22px 0 8px; font-size:15px; color:var(--teal); }
+  .process-help ol { padding-left:24px; } .process-help li { margin:10px 0; padding-left:4px; }
+  .help-filters { display:grid; grid-template-columns:minmax(130px,180px) 1fr; gap:12px 18px; margin:16px 0; }
+  .help-filters dt { font-weight:650; } .help-filters dd { margin:0; }
+  @media(max-width:600px) { .help-filters { grid-template-columns:1fr; gap:4px; } .help-filters dd { margin-bottom:12px; } }
   button:focus-visible, a:focus-visible { outline:3px solid #6a9fa3; outline-offset:3px; }
   @media(max-width:650px) { .branches { grid-template-columns:1fr; } .process-intro h2 { font-size:25px; } .process-bar { padding:14px 16px; } .flow-step { padding:16px; } }
 </style>
@@ -110,7 +115,7 @@
     <div class="cards" role="group" aria-label="Filter Opportunities by PSE assignment">
       <button type="button" class="card category-card" data-pse-category="tagged" aria-pressed="false" aria-controls="panelUpdate"><span class="k">Opportunities with tagged PSE</span><span class="v" id="cWithPse">—</span><span class="sub">Partner + tagged PSE · missing Team or Split</span></button>
       <button type="button" class="card category-card" data-pse-category="untagged" aria-pressed="false" aria-controls="panelUpdate"><span class="k">Partner but no tagged PSE</span><span class="v" id="cWithoutPse">—</span><span class="sub">PSE blank · Partner Owner missing from Team or Split</span></button>
-      <button type="button" class="card category-card selected" data-pse-category="all" aria-pressed="true" aria-controls="panelUpdate"><span class="k">All Opportunities to update</span><span class="v" id="cNeedsUpdate">—</span><span class="sub">Show all missing PSE field, Team, or Split steps</span></button>
+      <button type="button" class="card category-card selected" data-pse-category="all" aria-pressed="true" aria-controls="panelUpdate"><span class="k">All Opportunities to update</span><span class="v" id="cNeedsUpdate">—</span><span class="sub">Both categories · missing Team or Split</span></button>
     </div>
     <div class="category-context"><span id="categoryLabel" aria-live="polite">Showing all Opportunities to update</span><span class="sub">Card counts follow your search and filters. Select a box to filter the list.</span></div>
     <div class="toolbar">
@@ -147,7 +152,7 @@
       <div id="actionEmpty" class="empty hidden">No Opportunities need a PSE field, Team, or Split update for these filters.</div>
       <div class="pagination"><span id="actionPageInfo"></span><button class="ghost" id="actionPrev">Previous</button><button class="ghost" id="actionNext">Next</button></div>
     </section>
-    <footer class="sub">Commissionable Renewal, New Business, and Expansion Opportunities at Stage 08 - Closed with a tagged Partner and a missing PSE field, Team membership, or Split membership. Existing PSE values and existing Team and Split entries are preserved. Refresh reads Salesforce; Update actions apply the process after confirmation.</footer>
+    <footer class="sub">Commissionable Renewal, New Business, and Expansion Opportunities at Stage 08 - Closed with a tagged Partner and a PSE missing from the Team, Splits, or both. When the PSE field is blank, membership checks use the Partner Owner. Existing PSE values and existing Team and Split entries are preserved. Refresh reads Salesforce; Update actions apply the process after confirmation.</footer>
   </section>
 </main>
 
@@ -172,16 +177,32 @@
       <div class="branches"><div class="branch"><strong>Rep already on a Split → Keep entry</strong><p>Make no Split change. Any existing Split for that rep counts as present; its type, role, and percentage stay as they are.</p></div><div class="branch"><strong>Rep missing → Add Overlay Split</strong><dl><dt>Split Owner</dt><dd>Chosen PSE</dd><dt>Split Type</dt><dd>Overlay</dd><dt>Team Role</dt><dd>Partner Account Executive</dd><dt>Percent</dt><dd>100.00%</dd></dl></div></div>
     </section>
     <section class="process-help"><h3>Using the dashboard</h3>
-      <p><b>Clickable boxes:</b> “Opportunities with tagged PSE” shows Partner Opportunities with a populated PSE that is missing from the Team, Splits, or both. “Partner but no tagged PSE” shows a blank PSE whose proposed Partner Owner is missing from the Team, Splits, or both. “All Opportunities to update” also includes a blank PSE field when the Owner is already on both the Team and Splits. Counts follow your search and Fiscal Quarter–Year, Type, Segment, Region, and PSE Status filters. Update all and Export CSV use the selected box.</p>
-      <p><b>What appears:</b> Closed Opportunities (Stage <b>08 - Closed</b>) in scope with a Partner and at least one missing step. Fully configured Opportunities count in the totals and leave the update list.</p>
-      <p><b>Refresh:</b> Reads the latest Salesforce records and rebuilds the dashboard only when clicked. Opening or reloading the page displays the saved snapshot and does not start a Salesforce refresh. It does not populate fields or add Team members or Splits.</p>
-      <p><b>Update in Salesforce:</b> Applies this process to that Opportunity after confirmation.</p>
-      <p><b>Update all N in Salesforce:</b> Applies this process to all matching Opportunities across all pages, using your current search and Fiscal Quarter–Year, Type, Segment, Region, and PSE Status selections. Each Opportunity uses its own existing PSE or its own Partner’s Owner.</p>
-      <p><b>Existing records:</b> The dashboard rechecks Salesforce before each stage and adds missing entries. It preserves populated PSE values and existing Team and Split entries.</p>
-      <p><b>Fiscal Quarter–Year filter:</b> Uses Opportunity Close Date and Zendesk’s February–January fiscal calendar: Q1 Feb–Apr, Q2 May–Jul, Q3 Aug–Oct, Q4 Nov–Jan. For example, November 2026 through January 2027 is FY2027 Q4. Select one or multiple quarters; clearing the selection shows all quarters.</p>
-      <p><b>PSE Status filter:</b> Select Active, Inactive, or both. For a blank PSE field, status refers to the Partner Owner proposed as PSE. Card counts, list results, Update all, and Export CSV follow this filter.</p>
-      <p><b>Inactive or unavailable users:</b> User status is displayed; the new flow does not exclude inactive users. An unresolved Owner or a Salesforce validation error is reported and the Opportunity stays incomplete. A failed step stops later additions for that Opportunity. Retry continues from the remaining missing steps.</p>
-      <p><b>Return to your work:</b> Click Close or press Escape. Your search, filters, and dashboard position are preserved.</p>
+      <p>The list shows closed Opportunities with a Partner tagged where the PSE still needs to be added to the Opportunity Team, Opportunity Splits, or both. When the PSE field is blank, these checks use the tagged Partner’s Owner.</p>
+      <h4>Refresh</h4>
+      <p>Click <b>Refresh</b> to pull the latest data from Salesforce. The dashboard updates its counts and list based on the current Opportunity, Partner, PSE, Team, and Split records in SFDC. Data refreshes only when this button is clicked. Opening or reloading the page shows the last saved data.</p>
+      <h4>Clickable boxes</h4>
+      <p>Click a box to filter the list by category:</p>
+      <ol>
+        <li><b>Opportunities with tagged PSE:</b> Closed Opportunities with a Partner and an existing PSE, where that PSE is missing from the Opportunity Team, Opportunity Splits, or both.</li>
+        <li><b>Partner but no tagged PSE:</b> Closed Opportunities with a Partner but a blank PSE field, where the Partner’s Owner is missing from the Opportunity Team, Opportunity Splits, or both. The Owner is the PSE that will be used when you click Update.</li>
+        <li><b>All Opportunities to update:</b> Combines the first two categories: closed Opportunities with a Partner, with or without a tagged PSE, that still need a Team or Split update.</li>
+      </ol>
+      <p><b>What “missing” means:</b> If the rep is already on the Team but has no Split, the Opportunity stays in the list. The same applies if the rep has a Split but is missing from the Team. If the rep is already on both, the Opportunity is excluded from all three boxes.</p>
+      <h4>Search and filters</h4>
+      <p>Search by <b>Opportunity name, Opportunity ID, or Account name</b>. Use the filters below to narrow the selected category. You can select multiple values in each filter; selections across different filters work together. Clear a filter’s selections to remove that restriction.</p>
+      <dl class="help-filters">
+        <dt>Fiscal Quarter–Year</dt><dd>Filters by Opportunity Close Date using Zendesk’s fiscal calendar: Q1 Feb–Apr, Q2 May–Jul, Q3 Aug–Oct, and Q4 Nov–Jan. For example, November 2026 through January 2027 is FY2027 Q4.</dd>
+        <dt>Opportunity Type</dt><dd>Choose Renewal, New Business, Expansion, or a combination.</dd>
+        <dt>Market Segment</dt><dd>Filters by the Opportunity’s Account Owner Market Segment.</dd>
+        <dt>Region</dt><dd>Filters by the Region recorded on the Opportunity.</dd>
+        <dt>PSE Status</dt><dd>Choose Active, Inactive, or both. If a PSE is tagged, this is that user’s status. If the PSE field is blank, this is the Partner Owner’s status.</dd>
+      </dl>
+      <p>The box counts reflect your search and filters. <b>All Opportunities to update = tagged PSE category + no tagged PSE category</b> for the same selections.</p>
+      <h4>Update and export</h4>
+      <p><b>Update in Salesforce</b> applies the process to one Opportunity after confirmation. <b>Update all N in Salesforce</b> applies it to all matching results across all pages, using your selected box, search, and filters. <b>Export CSV</b> downloads that same filtered list.</p>
+      <p>Refresh only reads Salesforce. Update actions preserve an existing PSE, populate a blank PSE from the tagged Partner’s Owner, and add missing Team and Split entries. Each Opportunity uses its own PSE. Existing entries are preserved; Salesforce errors are reported so you can retry the remaining steps.</p>
+      <p><b>Scope:</b> Commissionable Renewal, New Business, and Expansion Opportunities at Stage exactly <b>08 - Closed</b>, with a Partner tagged.</p>
+      <p><b>Return to the dashboard:</b> Click Close or press Escape. Your search, filters, and dashboard position are preserved.</p>
     </section>
   </div>
 </dialog>

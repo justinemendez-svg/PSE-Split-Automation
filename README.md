@@ -30,7 +30,9 @@ The three clickable summary boxes filter the worklist:
 | --- | --- |
 | Opportunities with tagged PSE | Partner and existing PSE; the PSE is missing from the Team, Splits, or both. |
 | Partner but no tagged PSE | Partner and blank PSE; the proposed Partner Owner is missing from the Team, Splits, or both. |
-| All Opportunities to update | The complete worklist, including blank PSE fields whose proposed Owner is already on both the Team and Splits. |
+| All Opportunities to update | Combines the two categories above: Partner Opportunities with or without a tagged PSE that need a Team or Split update. |
+
+The All box equals the sum of the tagged and untagged boxes for the same search and filters. If the existing PSE (or proposed Partner Owner for a blank PSE) is already on both the Team and Splits, the Opportunity is excluded from all three boxes.
 
 Cards show Opportunity name, ID, stage, Close Date, type, Account, Account Owner, segment, region, Partner, Partner Owner, PSE, and user status.
 
@@ -88,6 +90,7 @@ Run offline checks with:
 python3 -m unittest discover -s tests -v
 node --check docs/app.js
 node tests/test_manual_refresh.js
+node tests/test_categories.js
 ```
 
 The optional [AppFoundry package](pse-split-appfoundry/README.md) uses PostgreSQL and Salesforce OAuth. It is not required for the complete local dashboard.
