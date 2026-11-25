@@ -29,8 +29,8 @@ const document={body:{style:{overflow:""}},getElementById:(id)=>{assert(nodes.ha
 const context={document,console,CSS:{escape:value=>value},setTimeout:()=>1,clearTimeout:()=>{},window:{confirm:()=>false},Blob:class{constructor(chunks){csv=chunks.join('');}},URL:{createObjectURL:()=>'',revokeObjectURL:()=>{}}};
 vm.createContext(context);
 vm.runInContext(fs.readFileSync('docs/app.js','utf8').replace(/load\(\);\s*$/,''),context);
-const base={partnerId:'partner',partnerOwnerId:'005000000000001AAA',partnerRepId:'005000000000001AAA',stage:'08 - Closed',nonCommissionable:false,type:'Renewal',partnerRepOnTeam:false,partnerRepOnSplit:false,partnerRepActive:true,partnerRepName:'Example PSE',closeDate:'2026-11-24'};
-const snapshot={config:{scopeVersion:4},rows:[{...base,id:'tagged',name:'Alpha',partnerRepNeedsPopulate:false},{...base,id:'untagged',name:'Beta',partnerRepNeedsPopulate:true,partnerRepActive:false}],summary:{total:2,tagged:0,needsUpdate:2}};
+const base={partnerType:null,partnerId:'partner',partnerOwnerId:'005000000000001AAA',partnerRepId:'005000000000001AAA',stage:'08 - Closed',nonCommissionable:false,type:'Renewal',partnerRepOnTeam:false,partnerRepOnSplit:false,partnerRepActive:true,partnerRepName:'Example PSE',closeDate:'2026-11-24'};
+const snapshot={config:{scopeVersion:5},rows:[{...base,id:'tagged',name:'Alpha',partnerRepNeedsPopulate:false},{...base,id:'untagged',name:'Beta',partnerRepNeedsPopulate:true,partnerRepActive:false}],summary:{total:2,tagged:0,needsUpdate:2}};
 context.snapshot=snapshot;
 const run=code=>vm.runInContext(code,context);
 const reset=()=>{requests.length=0;run('state.query="";state.pseCategory="all";state.pseStatus.clear();hydrate(snapshot);state.writeApi.enabled=true;');};

@@ -31,7 +31,7 @@ LIGHTNING_URL = "https://zendesk.lightning.force.com"
 SPLIT_TYPE_LABEL = "Overlay"
 SPLIT_PERCENTAGE = 100
 OPPORTUNITY_TYPES = ("Renewal", "New Business", "Expansion")
-from workflow import CLOSED_STAGE, PARTNER_FIELD, PARTNER_REL, REP_FIELDS, SCOPE_VERSION, rep_state, summary
+from workflow import CLOSED_STAGE, PARTNER_FIELD, PARTNER_REL, REP_FIELDS, SCOPE_VERSION, EXCLUDED_PARTNER_TYPE, rep_state, summary
 
 
 def sf_session(org: str | None) -> tuple[str, str]:
@@ -130,6 +130,7 @@ def build_soql() -> str:
         "SELECT Id, Name, StageName, CloseDate, Type, Amount, Non_Commissionable__c, Account.Name, Account.Owner.Name, "
         "Account_Owner_Market_Segment__c, Region__c, " + REP_FIELDS +
         f" FROM Opportunity WHERE {PARTNER_FIELD} != null "
+        f"AND ({PARTNER_REL}.Type = null OR {PARTNER_REL}.Type != '{EXCLUDED_PARTNER_TYPE}') "
         "AND Non_Commissionable__c = false "
         f"AND Type IN ({types}) AND StageName = '{CLOSED_STAGE}'"
     )
@@ -192,7 +193,7 @@ def main() -> None:
     data = {
         "generatedAt": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
         "config": {"scope": "Commissionable 08 - Closed Renewal, New Business, and Expansion opportunities",
-                   "scopeVersion": SCOPE_VERSION, "stage": CLOSED_STAGE, "partnerField": PARTNER_FIELD, "splitCheck": "any", "commissionableOnly": True,
+                   "scopeVersion": SCOPE_VERSION, "excludedPartnerType": EXCLUDED_PARTNER_TYPE, "stage": CLOSED_STAGE, "partnerField": PARTNER_FIELD, "splitCheck": "any", "commissionableOnly": True,
                    "opportunityTypes": list(OPPORTUNITY_TYPES), "splitType": SPLIT_TYPE_LABEL,
                    "splitTypeId": split_type_id, "splitPercentage": SPLIT_PERCENTAGE},
         "summary": summary,

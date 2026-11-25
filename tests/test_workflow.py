@@ -66,6 +66,21 @@ class SalesforceStub:
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_startup_partner_is_excluded_from_preview_and_all_writes(self):
+        for blank in (False, True):
+            sf = SalesforceStub(blank=blank)
+            sf.record[PARTNER_REL]['Type'] = 'Startup Program Partner'
+            self.assertEqual(sf.run(write=False)['idsToAdd'], [])
+            result = sf.run()
+            self.assertFalse(result['states'][sf.opp_id]['inScope'])
+            self.assertEqual(sf.writes, [])
+
+    def test_refresh_query_excludes_startup_partner_accounts_and_preserves_blank_types(self):
+        from refresh import build_soql
+        sql = build_soql()
+        self.assertIn(f'{PARTNER_REL}.Type', sql)
+        self.assertIn(f"({PARTNER_REL}.Type = null OR {PARTNER_REL}.Type != 'Startup Program Partner')", sql)
+
     def test_blank_populates_then_team_then_split(self):
         sf = SalesforceStub(blank=True)
         result = sf.run()

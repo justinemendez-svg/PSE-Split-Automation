@@ -3,11 +3,11 @@ import datetime as dt
 import math
 import re
 
-from workflow import CLOSED_STAGE, OPPORTUNITY_TYPES, PARTNER_FIELD, SCOPE_VERSION, summary
+from workflow import CLOSED_STAGE, OPPORTUNITY_TYPES, PARTNER_FIELD, SCOPE_VERSION, EXCLUDED_PARTNER_TYPE, summary
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 TEXT_FIELDS = ('name', 'account', 'accountOwner', 'stage', 'closeDate', 'type', 'segment', 'region',
-               'partnerName', 'partnerOwnerName', 'partnerRepName', 'partnerRepSource', 'blockedReason', 'bucket', 'reason')
+               'partnerName', 'partnerType', 'partnerOwnerName', 'partnerRepName', 'partnerRepSource', 'blockedReason', 'bucket', 'reason')
 BOOL_FIELDS = ('partnerRepNeedsPopulate', 'partnerRepOnTeam', 'partnerRepOnSplit')
 
 
@@ -27,6 +27,8 @@ def validate_snapshot(value):
     rows, seen = [], set()
     for number, row in enumerate(value['rows'], 1):
         if not isinstance(row, dict): raise ValueError(f'Row {number} is not an Opportunity record.')
+        if 'partnerType' not in row:
+            raise ValueError(f'Row {number} is missing Partner Type. Export fresh data using the current command.')
         opp_id = row.get('id')
         if not isinstance(opp_id, str) or not re.fullmatch(r'006[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?', opp_id):
             raise ValueError(f'Row {number} has an invalid Opportunity ID.')
@@ -60,9 +62,10 @@ def validate_snapshot(value):
         if not valid_amount:
             raise ValueError(f'Row {number} has an invalid amount.')
         clean.update(amount=amount, partnerRepActive=row.get('partnerRepActive'))
-        rows.append(clean)
+        if clean['partnerType'] != EXCLUDED_PARTNER_TYPE:
+            rows.append(clean)
     return {'generatedAt': generated,
-            'config': {'scopeVersion': SCOPE_VERSION, 'stage': CLOSED_STAGE, 'partnerField': PARTNER_FIELD,
+            'config': {'scopeVersion': SCOPE_VERSION, 'excludedPartnerType': EXCLUDED_PARTNER_TYPE, 'stage': CLOSED_STAGE, 'partnerField': PARTNER_FIELD,
                        'scope': 'Commissionable 08 - Closed Renewal, New Business, and Expansion opportunities',
                        'commissionableOnly': True, 'splitCheck': 'any', 'opportunityTypes': list(OPPORTUNITY_TYPES)},
             'rows': rows, 'summary': summary(rows)}

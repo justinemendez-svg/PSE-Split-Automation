@@ -23,7 +23,7 @@ async function checkLoad(ok, config) {
   if (!ok) assert(elements.get('status').textContent.includes('Click Refresh'));
 }
 (async () => {
-  await checkLoad(true, { scopeVersion: 4 });
+  await checkLoad(true, { scopeVersion: 5 });
   await checkLoad(true, { scopeVersion: 1 });
   await checkLoad(false, {});
   const failureElements = new Map();

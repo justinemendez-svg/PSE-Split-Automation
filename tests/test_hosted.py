@@ -19,14 +19,32 @@ from refresh import export_snapshot
 
 
 def sample():
-    return {'generatedAt': '2026-11-24T00:00:00+00:00', 'config': {'scopeVersion': 4}, 'rows': [{
+    return {'generatedAt': '2026-11-24T00:00:00+00:00', 'config': {'scopeVersion': 5}, 'rows': [{
         'id':'006000000000001AAA', 'partnerId':'001000000000001AAA', 'name':'Example',
-        'partnerRepId':'005000000000001AAA', 'stage':'08 - Closed', 'type':'Renewal',
+        'partnerType':None,'partnerRepId':'005000000000001AAA', 'stage':'08 - Closed', 'type':'Renewal',
         'closeDate':'2026-11-24', 'nonCommissionable':False, 'partnerRepActive':True,
         'partnerRepNeedsPopulate':False, 'partnerRepOnTeam':False, 'partnerRepOnSplit':True}]}
 
 
 class SnapshotChecks(unittest.TestCase):
+    def test_startup_partners_are_removed_and_summary_recomputed(self):
+        value=sample()
+        excluded=copy.deepcopy(value['rows'][0])
+        excluded.update(id='006000000000002AAA',partnerType='Startup Program Partner')
+        value['rows'].append(excluded)
+        result=validate_snapshot(value)
+        self.assertEqual(len(result['rows']),1)
+        self.assertEqual(result['summary']['total'],1)
+        with tempfile.TemporaryDirectory() as folder:
+            saved=json.loads(export_snapshot(value,folder).read_text())
+            self.assertEqual(len(saved['rows']),1)
+
+    def test_older_scope_and_missing_partner_type_must_be_reexported(self):
+        value=sample();value['config']['scopeVersion']=4
+        with self.assertRaises(ValueError):validate_snapshot(value)
+        value=sample();del value['rows'][0]['partnerType']
+        with self.assertRaises(ValueError):validate_snapshot(value)
+
     def test_round_trip_export_omits_unknown_fields_and_recomputes_summary(self):
         value=sample(); value['rows'][0]['unrelated']='omit'; value['summary']={'total':999}
         with tempfile.TemporaryDirectory() as folder:

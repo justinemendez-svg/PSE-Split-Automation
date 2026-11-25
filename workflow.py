@@ -8,16 +8,18 @@ PARTNER_FIELD = 'Referring_Partner__c'
 PARTNER_REL = 'Referring_Partner__r'
 TEAM_ROLE = 'Partner Account Executive'
 OPPORTUNITY_TYPES = ('Renewal', 'New Business', 'Expansion')
-SCOPE_VERSION = 4
+SCOPE_VERSION = 5
+EXCLUDED_PARTNER_TYPE = 'Startup Program Partner'
 CLOSED_STAGE = '08 - Closed'
 API_VERSION = 'v60.0'
-REP_FIELDS = (f'{PARTNER_FIELD}, {PARTNER_REL}.Name, {PARTNER_REL}.OwnerId, '
+REP_FIELDS = (f'{PARTNER_FIELD}, {PARTNER_REL}.Name, {PARTNER_REL}.Type, {PARTNER_REL}.OwnerId, '
               f'{PARTNER_REL}.Owner.Name, {PARTNER_REL}.Owner.IsActive, '
               'Partner_Sales_Rep__c, Partner_Sales_Rep__r.Name, Partner_Sales_Rep__r.IsActive, LastModifiedDate')
 
 
 def in_scope(record):
     return (bool(record.get(PARTNER_FIELD)) and record.get('Non_Commissionable__c') is False
+            and (record.get(PARTNER_REL) or {}).get('Type') != EXCLUDED_PARTNER_TYPE
             and record.get('Type') in OPPORTUNITY_TYPES and record.get('StageName') == CLOSED_STAGE)
 
 
@@ -34,6 +36,7 @@ def rep_state(record, team=(), splits=()):
     if not on_team: missing.append('Opportunity Team')
     if not on_split: missing.append('Opportunity Splits')
     return {'stage': record.get('StageName'), 'partnerId': record.get(PARTNER_FIELD), 'partnerName': partner.get('Name'),
+            'partnerType': partner.get('Type'),
             'partnerOwnerId': partner.get('OwnerId'), 'partnerOwnerName': (partner.get('Owner') or {}).get('Name'),
             'partnerRepId': rep_id, 'partnerRepName': rep.get('Name') or '(user unavailable)',
             'partnerRepActive': rep.get('IsActive'), 'partnerRepNeedsPopulate': populate,

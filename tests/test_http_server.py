@@ -20,7 +20,7 @@ class HTTPChecks(unittest.TestCase):
         cls.temp=tempfile.TemporaryDirectory(prefix='pse-http-checks-')
         cls.root=Path(cls.temp.name)
         cls.opp='006000000000001AAA'
-        cls.snapshot={'config':{'scopeVersion':4},'summary':{'total':1},'rows':[{'id':cls.opp,'name':'Offline example','stage':'08 - Closed','type':'Renewal','nonCommissionable':False,'partnerId':'001000000000001AAA','partnerRepOnTeam':False,'partnerRepOnSplit':False}]}
+        cls.snapshot={'config':{'scopeVersion':5},'summary':{'total':1},'rows':[{'id':cls.opp,'name':'Offline example','stage':'08 - Closed','type':'Renewal','nonCommissionable':False,'partnerType':None,'partnerId':'001000000000001AAA','partnerRepOnTeam':False,'partnerRepOnSplit':False}]}
         (cls.root/'index.html').write_text('<h1>Offline dashboard</h1>')
         (cls.root/'pse-data.json').write_text(json.dumps(cls.snapshot))
         cls.paths=patch.multiple(serve_local,DOCS=cls.root,DATA=cls.root/'pse-data.json')

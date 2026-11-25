@@ -5,7 +5,8 @@ const SPLIT_TYPE = "Overlay";
 const SPLIT_PERCENTAGE = 100;
 const PAGE_SIZE = 100;
 const OPPORTUNITY_TYPES = ["Renewal", "New Business", "Expansion"];
-const SCOPE_VERSION = 4;
+const SCOPE_VERSION = 5;
+const EXCLUDED_PARTNER_TYPE = "Startup Program Partner";
 const CLOSED_STAGE = "08 - Closed";
 const state = {
   rows: [], rowsById: new Map(), summary: {}, type: new Set(), segment: new Set(), region: new Set(), pseStatus: new Set(), fiscalQuarter: new Set(),
@@ -109,7 +110,7 @@ function hydrate(data) {
     $("dashboard").classList.add("hidden");
     const status = $("status");
     status.className = "status";
-    status.textContent = "The closed Opportunity flow (08 - Closed) needs a fresh Salesforce snapshot. Load a current export using Upload the data, or click Refresh in the local app.";
+    status.textContent = "This dashboard excludes Startup Program Partners and needs a current snapshot. Upload a fresh export, or click Refresh in the local app.";
     return false;
   }
   state.rows = (data.rows || []).map((row) => ({ ...row, fiscalQuarter: fiscalQuarterFromDate(row.closeDate) }));
@@ -179,6 +180,7 @@ function matchesCategory(row, category) {
 
 function filteredRows(category = state.pseCategory) {
   let rows = state.rows.filter((row) => row.inScope !== false && row.nonCommissionable === false && row.stage === CLOSED_STAGE &&
+    Object.prototype.hasOwnProperty.call(row, "partnerType") && row.partnerType !== EXCLUDED_PARTNER_TYPE &&
     OPPORTUNITY_TYPES.includes(row.type) && row.partnerId && !rowComplete(row));
   ["type", "segment", "region", "pseStatus", "fiscalQuarter"].forEach((key) => {
     const selected = state[key];
@@ -502,7 +504,7 @@ async function refreshData() {
 function csvCell(value) { return '"' + String(value == null ? "" : value).replace(/"/g, '""') + '"'; }
 function exportCsv() {
   const rows = filteredRows();
-  const columns = ["id", "name", "stage", "closeDate", "fiscalQuarter", "type", "account", "accountOwner", "segment", "region", "partnerName", "partnerOwnerName", "partnerOwnerId", "partnerRepName", "partnerRepId", "partnerRepNeedsPopulate", "partnerRepActive", "partnerRepOnTeam", "partnerRepOnSplit"];
+  const columns = ["id", "name", "stage", "closeDate", "fiscalQuarter", "type", "account", "accountOwner", "segment", "region", "partnerName", "partnerType", "partnerOwnerName", "partnerOwnerId", "partnerRepName", "partnerRepId", "partnerRepNeedsPopulate", "partnerRepActive", "partnerRepOnTeam", "partnerRepOnSplit"];
   const lines = [columns.join(","), ...rows.map((row) => columns.map((key) => csvCell(row[key])).join(","))];
   const blob = new Blob(["\ufeff" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob); const anchor = document.createElement("a");

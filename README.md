@@ -22,6 +22,8 @@ For each Opportunity:
 
 Preserve existing PSE values, Team entries, and Split entries, including their existing role, access, type, and percentage. Inactive users remain visible and can be filtered. If a Partner Owner cannot be resolved or Salesforce rejects a step, report it and keep the Opportunity incomplete. A failed step stops later additions for that Opportunity; retry continues with the remaining steps. Blank PSE writes use a record-version condition to avoid overwriting a concurrent edit.
 
+Opportunities linked to a Partner Account whose `Type` (Account Type) is `Startup Program Partner` are excluded from every category, export, and Salesforce update. Other Partner Types, including blank values, remain eligible. Export files from the older scope must be regenerated before upload.
+
 ## Dashboard
 
 The four clickable summary boxes filter the worklist:

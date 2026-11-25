@@ -19,7 +19,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from workflow import CLOSED_STAGE, REP_FIELDS, PARTNER_FIELD, execute, in_scope, is_complete, summary
+from workflow import CLOSED_STAGE, REP_FIELDS, PARTNER_FIELD, EXCLUDED_PARTNER_TYPE, execute, in_scope, is_complete, summary
 
 from refresh import (
     API_VERSION, OPPORTUNITY_TYPES, SCOPE_VERSION, SPLIT_PERCENTAGE,
@@ -125,6 +125,7 @@ def allowed_missing_ids() -> set[str]:
         raise RuntimeError("Refresh the dashboard data to load the commissionable 08 - Closed Opportunity scope.")
     return {row["id"] for row in data.get("rows", [])
             if row.get("id") and row.get("partnerId") and row.get("stage") == CLOSED_STAGE and row.get("nonCommissionable") is False
+            and 'partnerType' in row and row.get('partnerType') != EXCLUDED_PARTNER_TYPE
             and row.get("type") in OPPORTUNITY_TYPES and not is_complete(row)}
 
 

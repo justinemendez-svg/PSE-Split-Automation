@@ -158,7 +158,7 @@
       <div id="actionEmpty" class="empty hidden">No Opportunities need a PSE field, Team, or Split update for these filters.</div>
       <div class="pagination"><span id="actionPageInfo"></span><button class="ghost" id="actionPrev">Previous</button><button class="ghost" id="actionNext">Next</button></div>
     </section>
-    <footer class="sub">Commissionable Renewal, New Business, and Expansion Opportunities at Stage 08 - Closed with a tagged Partner and a PSE missing from the Team, Splits, or both. When the PSE field is blank, membership checks use the Partner Owner. Existing PSE values and existing Team and Split entries are preserved. Refresh reads Salesforce; Update actions apply the process after confirmation.</footer>
+    <footer class="sub">Commissionable Renewal, New Business, and Expansion Opportunities at Stage 08 - Closed with a tagged Partner, excluding Startup Program Partners, and a PSE missing from the Team, Splits, or both. When the PSE field is blank, membership checks use the Partner Owner. Existing PSE values and existing Team and Split entries are preserved. Refresh reads Salesforce; Update actions apply the process after confirmation.</footer>
   </section>
 </main>
 
@@ -166,10 +166,10 @@
   <div class="process-bar"><div class="process-brand">PSE Split Automation</div><button id="closeProcessFlow" class="ghost" autofocus>Close · Back to dashboard ×</button></div>
   <div class="process-content">
     <div class="process-intro"><h2 id="processTitle">Process Flow</h2><p>How the dashboard works</p></div>
-    <p class="process-scope"><b>Filter:</b> Closed Opportunity · With Partner Tagged · Stage: 08 - Closed</p>
+    <p class="process-scope"><b>Filter:</b> Closed Opportunity · With Partner Tagged · Stage: 08 - Closed · Excludes Startup Program Partner</p>
     <section class="flow-step"><h3><span class="step-number">1</span> Does the closed Opportunity have a Partner tagged?</h3>
       <p>Start with Opportunities whose Stage is exactly <b>08 - Closed</b>. Check whether the closed Opportunity has a tagged <b>Partner</b>.</p>
-      <div class="branches"><div class="branch"><strong>Partner is tagged → Continue</strong><p>Use the tagged Partner for this process.</p></div><div class="branch"><strong>No Partner → Stop</strong><p>Skip this Opportunity. It does not appear in the worklist.</p></div></div>
+      <div class="branches"><div class="branch"><strong>Partner is tagged → Continue</strong><p>Use the tagged Partner for this process. If Partner Type is Startup Program Partner, stop and exclude the Opportunity.</p></div><div class="branch"><strong>No Partner → Stop</strong><p>Skip this Opportunity. It does not appear in the worklist.</p></div></div>
       <p class="also">Salesforce field: the lookup labeled “Partner” is <code>Referring_Partner__c</code>.</p>
     </section><div class="flow-arrow" aria-hidden="true">↓</div>
     <section class="flow-step"><h3><span class="step-number">2</span> Choose the Partner Sales Rep</h3>
@@ -208,7 +208,7 @@
       <div data-local-actions><h4>Update and export</h4>
       <p><b>Update in Salesforce</b> applies the process to one Opportunity after confirmation. <b>Update all N in Salesforce</b> applies it to all matching results across all pages, using your selected box, search, and filters. <b>Export CSV</b> downloads that same filtered list.</p>
       <p>Refresh only reads Salesforce. Update actions preserve an existing PSE, populate a blank PSE from the tagged Partner’s Owner, and add missing Team and Split entries. Each Opportunity uses its own PSE. Existing entries are preserved; Salesforce errors are reported so you can retry the remaining steps.</p>
-      </div><p><b>Scope:</b> Commissionable Renewal, New Business, and Expansion Opportunities at Stage exactly <b>08 - Closed</b>, with a Partner tagged.</p>
+      </div><p><b>Scope:</b> Commissionable Renewal, New Business, and Expansion Opportunities at Stage exactly <b>08 - Closed</b>, with a Partner tagged. Partners with Partner Type <b>Startup Program Partner</b> are excluded.</p>
     </section>
   </div>
 </dialog>

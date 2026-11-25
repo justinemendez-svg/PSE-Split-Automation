@@ -6,7 +6,7 @@ const context = {};
 vm.createContext(context);
 vm.runInContext(fs.readFileSync('docs/app.js', 'utf8').replace(/load\(\);\s*$/, ''), context);
 vm.runInContext(`
-const base = { partnerId: 'partner', stage: '08 - Closed', nonCommissionable: false, type: 'Renewal', partnerRepActive: true, partnerOwnerId:'005000000000001AAA', partnerRepId:'005000000000001AAA' };
+const base = { partnerType:null,partnerId: 'partner', stage: '08 - Closed', nonCommissionable: false, type: 'Renewal', partnerRepActive: true, partnerOwnerId:'005000000000001AAA', partnerRepId:'005000000000001AAA' };
 state.rows = [
  {...base,id:'tagged',partnerRepNeedsPopulate:false,partnerRepOnTeam:false,partnerRepOnSplit:true},
  {...base,id:'untagged',partnerRepNeedsPopulate:true,partnerRepOnTeam:true,partnerRepOnSplit:false},
@@ -20,6 +20,10 @@ state.rows = [
  {...base,id:'noPartner',partnerId:null,partnerRepNeedsPopulate:false,partnerRepOnTeam:false,partnerRepOnSplit:false},
  {...base,id:'open',stage:'02 - Confirm Need',partnerRepNeedsPopulate:false,partnerRepOnTeam:false,partnerRepOnSplit:false}
 ];
+state.rows.push({...state.rows[0],id:'startup',partnerType:'Startup Program Partner'});
+state.rows.push({...state.rows[1],id:'startupBlankPse',partnerType:'Startup Program Partner'});
+state.rows.push({...state.rows[0],id:'uncheckedType',partnerType:undefined});
+delete state.rows[state.rows.length-1].partnerType;
 state.filterOptions.pseStatus = ['Active','Inactive'];
 `, context);
 const ids = (category) => Array.from(vm.runInContext(`filteredRows('${category}').map(row=>row.id)`, context)).sort();
