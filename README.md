@@ -47,12 +47,16 @@ Read **Process Flow** before applying updates. Close returns to the dashboard.
 
 ## Salesforce update rules
 
-1. An active matching PSE can be ready. If the PSE field is blank, use the active Partner Owner.
-2. A populated PSE is preserved unless an explicit assignment review confirms another active user. A different PSE requires review. An inactive PSE needing changes requires confirmation of RVP approval and an active covering PSE with **Partner Account Executive - Coverage**. The dashboard does not contact the RVP.
-3. Missing Team membership is added with **Partner Account Executive** (or the reviewed Coverage role) and **Read Only** access. Existing incorrect/blank roles are corrected; existing access is preserved.
-4. Missing Split membership is added as **Overlay**, **100%**, with the required role. Both **Partner Account Executive** and **Partner Account Executive - Coverage** are valid existing Split roles. Preserve either unless an explicit assignment review requests a role change. Correct only blank/unsupported Split roles automatically; preserve existing split type and percentage. The read-only `Coverage__c` formula checks Coverage automatically when the Split role contains “Coverage.” The dashboard shows the actual checkbox value and flags `Partner Account Executive - Coverage` when Coverage is unchecked; it never writes directly to the formula field. Missing checkbox data is shown as not loaded, not assumed unchecked. Refresh/checking does not change Salesforce; supported record changes require clicking Update and confirmation. An unchecked read-only formula requires verification in Salesforce. Multiple memberships or unresolved information are blocked for individual review.
+**Refresh and page loading never update Salesforce records.** The steps below are applied only after you click **Update in Salesforce** or **Update all ready** and confirm. Saving an assignment review records a local decision; it does not update Salesforce.
 
-**Update in Salesforce** affects one Opportunity. **Update all ready** affects ready records across the current filtered pages after confirmation. Review, RVP and blocked records are excluded until resolved. Every stage rechecks scope, assignment and user activity; a failed Team step stops Split changes. Earlier successful changes are retained and reported so remaining work can be retried. Already-correct matching assignments require no write, even if the user is now inactive.
+1. Use the existing PSE. If the field is blank, use the active Partner Owner and populate it during the confirmed update.
+2. A populated PSE changes only after an explicit assignment review selects an active user and an Update is confirmed. Different PSE/Partner Owner assignments require review. An inactive PSE with pending changes requires an RVP-approved active covering PSE and the Coverage role. The dashboard does not contact the RVP.
+3. Add missing Team membership with **Partner Account Executive**, or the explicitly reviewed Coverage role, and **Read Only** access. During the confirmed update, correct the Team role to the assignment's required role. Preserve existing access.
+4. Add a missing Split as **Overlay**, **100%**, with the required role. Both **Partner Account Executive** and **Partner Account Executive - Coverage** are valid existing Split roles. Preserve either unless an explicit review requests a role change. Blank/unsupported Split roles can be corrected during the confirmed update. Preserve existing Split type and percentage.
+
+**Coverage check:** Display the actual `Coverage__c` value. Flag an existing **Partner Account Executive - Coverage** Split only when Coverage is known to be unchecked. Checked Coverage is valid; missing data is shown as not loaded. The dashboard never ticks this checkbox or sends a write to it. Salesforce defines it as a read-only formula, so an unchecked-value flag requires verification in Salesforce and is excluded from ready/bulk updates.
+
+**Update in Salesforce** affects one Opportunity. **Update all ready** affects ready records across all currently filtered pages. Review, RVP and blocked records are excluded until resolved. Before confirmation, the app previews current Salesforce state; after confirmation, every write stage rechecks scope, assignment and user activity. A failed Team step stops Split changes. Earlier successful changes are retained and reported so remaining work can be retried. Already-correct matching assignments require no write, even if the user is now inactive.
 
 Saved assignment reviews are local. Refresh revalidates them; assignment changes or deactivated selected users require a new review. Salesforce permissions and validation rules still apply.
 
@@ -62,7 +66,7 @@ The single UI is `docs/index.html` + `docs/app.js`. `serve_local.py` serves it o
 
 On macOS, the installer copies managed source into `~/Library/Application Support/com.zendesk.pse-split-automation` and removes known obsolete builds. It preserves the saved `docs/pse-data.json`, write audit and logs. The repo and installed app have separate snapshots; the dashboard Refresh uses the installed app's snapshot. No Salesforce data, credentials or write audits belong in Git.
 
-The previous AppFoundry package and duplicate UI have been removed from this repository. Existing hosted deployments are separate and are not updated by a Git push. This is a local server app; serving only the HTML as a static website does not provide Refresh or Salesforce updates.
+Run the local server to use Refresh and Salesforce updates. Opening only the HTML file does not start those services.
 
 Optional read-only export of this same current data profile:
 
@@ -70,7 +74,7 @@ Optional read-only export of this same current data profile:
 python3 export_for_upload.py --org prod --export-dir "<YOUR_ACTUAL_SYNCED_FOLDER_PATH>"
 ```
 
-The folder must be your own accessible local path. This command replaces `pse-data.json` there; it does not change Salesforce or upload anything. It now exports the complete current profile, so an older hosted app may require a separate upgrade before accepting it.
+The folder must be your own accessible local path. This command replaces `pse-data.json` there; it does not change Salesforce or upload anything. It uses the same current scope and validation as the dashboard.
 
 ## Offline checks
 

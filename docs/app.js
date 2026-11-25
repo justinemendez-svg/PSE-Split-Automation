@@ -281,7 +281,7 @@ function opportunityCard(row) {
   const requiredTeam = esc(targetName) + '<br>' + esc(role) + '<br><span class="sub">' + esc('Opportunity Access: ' + opportunityAccessLabel(team[0]?.OpportunityAccessLevel || 'Read')) + '</span>';
   const splitRole = p.targetSplitRole || (['Partner Account Executive','Partner Account Executive - Coverage'].includes(splits[0]?.Opportunity_Team_Role__c) ? splits[0].Opportunity_Team_Role__c : role);
   const coverageFlag = splits.some(item => item.Opportunity_Team_Role__c === 'Partner Account Executive - Coverage' && item.Coverage__c === false);
-  const requiredSplit = esc(targetName) + '<br>' + esc(splitRole) + '<br><span class="sub">' + esc(splits.length ? 'Keep existing type and percentage' : 'Overlay · 100.00%') + '</span>' + (coverageFlag ? '<div class="plan-action">Flag: Coverage role has Coverage unchecked. Verify in Salesforce.</div>' : '') + '<div class="sub">Coverage is read from Salesforce. Checking or refreshing does not change it.</div>';
+  const requiredSplit = esc(targetName) + '<br>' + esc(splitRole) + (!splits.length ? '<br><span class="sub">Overlay · 100.00%</span>' : '') + (coverageFlag ? '<div class="plan-action">Flag: Coverage role has Coverage unchecked. Verify in Salesforce.</div>' : '');
   const steps = planStep('1 · Partner Sales Rep field', p.fieldCurrent || (row.partnerRepNeedsPopulate ? 'Blank' : row.partnerRepName || '—'), esc(targetName), action('Opportunity'), correct('Opportunity')) +
     planStep('2 · Check Opportunity Team',currentTeam,requiredTeam,action('OpportunityTeamMember'),correct('OpportunityTeamMember')) +
     planStep('3 · Check Opportunity Splits',currentSplit,requiredSplit,action('OpportunitySplit'),correct('OpportunitySplit'));
@@ -415,11 +415,12 @@ async function updateOne(oppId, button) {
     if (!preview.eligible) throw new Error(preview.reason || "This PSE is no longer eligible.");
     const okay = window.confirm(
       "Apply the Partner → PSE → Team → Splits process for:\n\n" + preview.oppName +
-      "\n\nPSE: " + preview.partnerRepName +
+      "\n\nPSE: " + (preview.updatePlan?.targetName || preview.partnerRepName) +
       "\nChanges:\n" + (preview.updatePlan?.changes || []).map(item=>item.action).join("\n") +
-      "\nTeam role: " + (preview.updatePlan?.targetRole || TEAM_ROLE) + " (Opportunity Access: Read Only)" +
+      "\nTeam role: " + (preview.updatePlan?.targetRole || TEAM_ROLE) + " (Opportunity Access: " + opportunityAccessLabel(preview.updatePlan?.teamCurrent?.[0]?.OpportunityAccessLevel || "Read") + ")" +
+      "\nSplit role: " + (preview.updatePlan?.targetSplitRole || preview.updatePlan?.targetRole || TEAM_ROLE) +
       "\nExisting split types/percentages: preserved; new Split: 100% Overlay" +
-      "\nSalesforce org: " + state.writeApi.org + "\n\nApply the reviewed PSE assignment, add missing entries and correct Team/Split roles as shown. Salesforce checks Coverage automatically for the Coverage Split role. Existing split types and percentages are preserved. Proceed?"
+      "\nSalesforce org: " + state.writeApi.org + "\n\nApply the reviewed PSE assignment, add missing entries and correct Team/Split roles as shown. Coverage is display-only; an unchecked Coverage-role Split is flagged for verification. Existing split types and percentages are preserved. Proceed?"
     );
     if (!okay) { message.textContent = "Cancelled — no Salesforce change was made."; button.disabled = false; return; }
     message.textContent = "Updating Salesforce…";
@@ -467,7 +468,7 @@ async function updateAll() {
     renderUpdate();
     const okay = window.confirm(
       "Update " + preview.idsToAdd.length.toLocaleString() + " Opportunities in " + state.writeApi.org +
-      "?\n\nApply only ready records after a fresh Salesforce recheck. Populate blank or explicitly reviewed PSE assignments, add missing Team/Split entries, and correct their roles. Existing split types and percentages remain unchanged. New Splits use Overlay at 100%. Salesforce checks Coverage automatically for the Coverage Split role.\n\nRecords needing review or RVP confirmation, blocked records, and records that changed are skipped. This includes all filtered pages."
+      "?\n\nApply only ready records after a fresh Salesforce recheck. Populate blank or explicitly reviewed PSE assignments, add missing Team/Split entries, apply the required Team role, and correct blank/unsupported Split roles. Preserve either valid existing Split role unless an explicit review requests a change. Existing split types and percentages remain unchanged. New Splits use Overlay at 100%. Coverage is display-only; an unchecked Coverage-role Split is flagged for verification.\n\nRecords needing review or RVP confirmation, blocked records, and records that changed are skipped. This includes all filtered pages."
     );
     if (!okay) { message.textContent = "Cancelled — no Salesforce changes were made."; button.disabled = false; return; }
     message.textContent = "Updating Salesforce… this may take several minutes.";
@@ -476,7 +477,7 @@ async function updateAll() {
       setRowState(id, status));
     message.className = result.failed ? "msg err" : "msg ok";
     message.textContent = fmtCount(result.succeeded) + " fully updated · " + fmtCount(result.fieldPopulated) + " PSE fields populated · " + fmtCount(result.teamAdded) + " team adds · " +
-      fmtCount(result.splitAdded) + " split adds · " + fmtCount(result.teamRolesUpdated) + " Team roles corrected · " + fmtCount(result.splitRolesUpdated) + " Split roles corrected" + (result.failed ? " · " + fmtCount(result.failed) + " incomplete" : "") +
+      fmtCount(result.splitAdded) + " split adds · " + fmtCount(result.teamRolesUpdated) + " Team roles corrected · " + fmtCount(result.splitRolesUpdated) + " Split roles updated" + (result.failed ? " · " + fmtCount(result.failed) + " incomplete" : "") +
       ((result.inactive || result.changed || result.excluded) ? " · " + fmtCount((result.inactive || 0) + (result.changed || 0) + (result.excluded || 0)) + " skipped" : "");
     if ((result.errors || []).length) message.textContent += " · " + result.errors.map((item) => (item.oppId ? item.oppId + ": " : "") + item.message).join("; ");
     render();
@@ -505,19 +506,7 @@ async function refreshData() {
   message.textContent = "Refreshing Salesforce… This can take a few minutes.";
   try {
     if (!(await ensureWriteLogin())) throw new Error("Salesforce login is required to refresh the dashboard.");
-    const result = await postJson("/api/refresh", { manual: true });
-    if (result.jobId) {
-      let complete = false;
-      while (!complete) {
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-        const response = await fetch("/api/refresh-status?jobId=" + encodeURIComponent(result.jobId), { cache: "no-store" });
-        const job = await response.json();
-        if (!response.ok) throw new Error(job.error || ("HTTP " + response.status));
-        message.textContent = job.message || "Refreshing Salesforce data…";
-        if (job.status === "failed") throw new Error(job.message || "Salesforce refresh failed.");
-        complete = job.status === "complete";
-      }
-    }
+    await postJson("/api/refresh", { manual: true });
     await reloadSnapshot();
     message.className = "sub";
     message.textContent = "";
