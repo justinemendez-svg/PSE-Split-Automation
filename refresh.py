@@ -152,7 +152,7 @@ def build_team_soql(opportunity_ids: list[str]) -> str:
 def build_split_soql(opportunity_ids: list[str]) -> str:
     ids = ','.join("'" + value + "'" for value in opportunity_ids)
     return ('SELECT Id, OpportunityId, SplitOwnerId, SplitOwner.Name, SplitType.MasterLabel, '
-            'Opportunity_Team_Role__c, SplitPercentage '
+            'Opportunity_Team_Role__c, Coverage__c, SplitPercentage '
             f'FROM OpportunitySplit WHERE OpportunityId IN ({ids})')
 
 

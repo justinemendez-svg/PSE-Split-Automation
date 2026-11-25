@@ -128,6 +128,14 @@ const response=value=>({ok:true,status:200,json:async()=>value});
    }
    assert(!run('inFiscalWindow("2026-07-31")'));
    assert(!run('inFiscalWindow("2027-02-01")'));
+   context.coverageRow={...base,id:'coverage',membershipDetailsLoaded:true,
+     updatePlan:{status:'ready',targetName:'Covering PSE',targetRole:'Partner Account Executive - Coverage',
+       teamCurrent:[],splitCurrent:[{Opportunity_Team_Role__c:'Partner Account Executive - Coverage',Coverage__c:true,SplitPercentage:100}],changes:[]}};
+   const coverageCard=run('opportunityCard(coverageRow)');
+   assert(coverageCard.includes('Coverage: Checked'));
+   assert(coverageCard.includes('disabled checked> Coverage'));
+   context.coverageRow.updatePlan.splitCurrent[0].Coverage__c=false;
+   assert(run('opportunityCard(coverageRow)').includes('Coverage: Unchecked'));
    nodes.get('processFlowBtn').events.click();
    assert(nodes.get('processFlow').open);
    nodes.get('closeProcessFlow').events.click();

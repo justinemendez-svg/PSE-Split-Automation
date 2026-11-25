@@ -46,6 +46,10 @@ def plan(row, approval=None):
         status, reason = 'blocked', 'Multiple Team or Split entries need individual review in Salesforce.'
     elif any(item.get('id') is None and item['action'].startswith('Correct') for item in changes):
         status, reason = 'blocked', 'Refresh to load the existing entry IDs before correcting roles.'
+    elif (role == COVERAGE_ROLE and len(splits) == 1
+          and splits[0].get('Opportunity_Team_Role__c') == role
+          and splits[0].get('Coverage__c') is not True):
+        status, reason = 'blocked', 'Coverage is a read-only Salesforce formula. Click Refresh to verify it is checked for the Coverage Split role.'
     elif status == 'complete' and not different:
         pass
     elif row.get('partnerRepActive') is False and not accepted:
@@ -57,7 +61,7 @@ def plan(row, approval=None):
     if accepted and review.get('requiresRvp') and (not review.get('rvpConfirmed') or role != COVERAGE_ROLE):
         status, reason = 'rvp', 'RVP confirmation and the Coverage role are required.'
     return {'status':status, 'reason':reason, 'changes':changes, 'targetRepId':target, 'targetName':name,
-            'targetRole':role, 'teamCurrent':team, 'splitCurrent':splits,
+            'targetRole':role, 'coverageRequired':role == COVERAGE_ROLE, 'teamCurrent':team, 'splitCurrent':splits,
             'fieldCurrent':None if blank else row.get('partnerRepName'), 'different':different}
 
 
@@ -72,7 +76,7 @@ def read_current(ids, query, approvals=None):
     quoted=','.join("'"+key+"'" for key in ids)
     records=query('SELECT Id, Name, StageName, CloseDate, Type, Non_Commissionable__c, '+LOCAL_REP_FIELDS+' FROM Opportunity WHERE Id IN ('+quoted+')')
     team=query('SELECT Id, OpportunityId, UserId, User.Name, TeamMemberRole, OpportunityAccessLevel FROM OpportunityTeamMember WHERE OpportunityId IN ('+quoted+')')
-    splits=query('SELECT Id, OpportunityId, SplitOwnerId, SplitOwner.Name, SplitType.MasterLabel, Opportunity_Team_Role__c, SplitPercentage FROM OpportunitySplit WHERE OpportunityId IN ('+quoted+')')
+    splits=query('SELECT Id, OpportunityId, SplitOwnerId, SplitOwner.Name, SplitType.MasterLabel, Opportunity_Team_Role__c, Coverage__c, SplitPercentage FROM OpportunitySplit WHERE OpportunityId IN ('+quoted+')')
     states={}
     approvals=dict(approvals or {})
     selected={value['userId'] for value in approvals.values() if value.get('userId')}

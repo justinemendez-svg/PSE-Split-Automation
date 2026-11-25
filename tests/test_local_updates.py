@@ -14,13 +14,15 @@ class DetailedSalesforce(SalesforceStub):
         self.other='005000000000003AAA'
         self.users={self.rep:active,self.other:True}
         self.members=[] if team_role is None else [{'Id':'00q000000000001AAA','OpportunityId':self.opp_id,'UserId':self.rep,'User':{'Name':'Existing'},'TeamMemberRole':team_role,'OpportunityAccessLevel':'Edit'}]
-        self.entries=[] if split_role is None else [{'Id':'049000000000001AAA','OpportunityId':self.opp_id,'SplitOwnerId':self.rep,'SplitOwner':{'Name':'Existing'},'SplitType':{'MasterLabel':'Overlay'},'Opportunity_Team_Role__c':split_role,'SplitPercentage':37}]
+        self.entries=[] if split_role is None else [{'Id':'049000000000001AAA','OpportunityId':self.opp_id,'SplitOwnerId':self.rep,'SplitOwner':{'Name':'Existing'},'SplitType':{'MasterLabel':'Overlay'},'Opportunity_Team_Role__c':split_role,'Coverage__c':'Coverage' in (split_role or ''),'SplitPercentage':37}]
         self.fail_team=fail_team
 
     def query(self,sql):
         if ' FROM User ' in sql:return [{'Id':key,'Name':'Existing' if key==self.rep else 'Covering','IsActive':active} for key,active in self.users.items()]
         if ' FROM OpportunityTeamMember ' in sql:return copy.deepcopy(self.members)
-        if ' FROM OpportunitySplit ' in sql:return copy.deepcopy(self.entries)
+        if ' FROM OpportunitySplit ' in sql:
+            assert 'Coverage__c' in sql
+            return copy.deepcopy(self.entries)
         return super().query(sql)
 
     def rest(self,method,path,body,headers=None):
@@ -40,6 +42,8 @@ class DetailedSalesforce(SalesforceStub):
                 entry=next(row for row in store if row['Id']==item['Id'])
                 entry.update({key:value for key,value in item.items() if key!='attributes'})
             else:store.append({'Id':'NEW',**{key:value for key,value in item.items() if key!='attributes'}})
+            if kind=='OpportunitySplit':
+                store[-1 if method=='POST' else next(i for i,row in enumerate(store) if row['Id']==item['Id'])]['Coverage__c']='Coverage' in item.get('Opportunity_Team_Role__c','')
             result.append({'success':True})
         return 200,result
 
@@ -90,6 +94,8 @@ class LocalUpdateChecks(unittest.TestCase):
         self.assertEqual(sf.members[-1]['TeamMemberRole'],COVERAGE_ROLE)
         self.assertEqual(sf.entries[-1]['Opportunity_Team_Role__c'],COVERAGE_ROLE)
         self.assertEqual(sf.entries[-1]['SplitPercentage'],100)
+        self.assertIs(sf.entries[-1]['Coverage__c'],True)
+        self.assertTrue(all('Coverage__c' not in item for _,item in sf.writes))
         self.assertEqual(sf.entries[0]['SplitPercentage'],37)
 
     def test_deactivated_covering_user_and_stale_review_are_skipped(self):
@@ -112,3 +118,34 @@ class LocalUpdateChecks(unittest.TestCase):
         sf=DetailedSalesforce();sf.entries*=2
         self.assertEqual(sf.local_run(write=True)['states'][sf.opp_id]['updatePlan']['status'],'blocked')
         self.assertEqual(sf.writes,[])
+
+    def coverage_approval(self, sf):
+        sf.record[PARTNER_REL]['OwnerId'] = sf.other
+        return {'confirmed': True, 'baseOwnerId': sf.other, 'baseRepId': sf.rep,
+                'userId': sf.rep, 'name': 'Existing', 'active': True, 'role': COVERAGE_ROLE}
+
+    def test_correcting_split_to_coverage_verifies_formula_without_writing_checkbox(self):
+        sf = DetailedSalesforce(team_role=COVERAGE_ROLE)
+        approval = self.coverage_approval(sf)
+        result = sf.local_run(write=True, approval=approval)
+        self.assertEqual(result['succeeded'], 1)
+        self.assertEqual(sf.entries[0]['Opportunity_Team_Role__c'], COVERAGE_ROLE)
+        self.assertIs(sf.entries[0]['Coverage__c'], True)
+        self.assertEqual(sf.entries[0]['SplitPercentage'], 37)
+        self.assertEqual([kind for kind, _ in sf.writes], ['OpportunitySplit'])
+        self.assertNotIn('Coverage__c', sf.writes[0][1])
+
+    def test_unverified_coverage_checkbox_is_not_reported_complete(self):
+        for value in [False, None]:
+            sf = DetailedSalesforce(team_role=COVERAGE_ROLE, split_role=COVERAGE_ROLE)
+            sf.entries[0]['Coverage__c'] = value
+            result = sf.local_run(write=True, approval=self.coverage_approval(sf))
+            self.assertEqual(result['states'][sf.opp_id]['updatePlan']['status'], 'blocked')
+            self.assertIn('read-only', result['states'][sf.opp_id]['updatePlan']['reason'])
+            self.assertEqual(sf.writes, [])
+
+    def test_existing_correct_coverage_split_needs_no_write(self):
+        sf = DetailedSalesforce(team_role=COVERAGE_ROLE, split_role=COVERAGE_ROLE)
+        result = sf.local_run(write=True, approval=self.coverage_approval(sf))
+        self.assertEqual(result['states'][sf.opp_id]['updatePlan']['status'], 'complete')
+        self.assertEqual(sf.writes, [])

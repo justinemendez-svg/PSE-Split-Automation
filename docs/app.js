@@ -274,12 +274,12 @@ function opportunityCard(row) {
   const target = p.targetName || row.partnerRepName || '—', role = p.targetRole || TEAM_ROLE;
   const team = p.teamCurrent || [], splits = p.splitCurrent || [];
   const currentTeam = row.membershipDetailsLoaded ? (team.length ? team.map(item => (item.User?.Name || target) + ' · ' + (item.TeamMemberRole || 'Role blank') + ' · ' + opportunityAccessLabel(item.OpportunityAccessLevel)).join('; ') : 'Not on the Opportunity Team') : 'Not loaded — click Refresh';
-  const currentSplit = row.membershipDetailsLoaded ? (splits.length ? splits.map(item => (item.SplitOwner?.Name || target) + ' · ' + (item.Opportunity_Team_Role__c || 'Role blank') + ' · ' + (item.SplitType?.MasterLabel || 'Type unavailable') + ' · ' + (item.SplitPercentage == null ? '% unavailable' : item.SplitPercentage + '%')).join('; ') : 'No Split for this PSE') : 'Not loaded — click Refresh';
+  const currentSplit = row.membershipDetailsLoaded ? (splits.length ? splits.map(item => (item.SplitOwner?.Name || target) + ' · ' + (item.Opportunity_Team_Role__c || 'Role blank') + ' · ' + (item.SplitType?.MasterLabel || 'Type unavailable') + ' · ' + (item.SplitPercentage == null ? '% unavailable' : item.SplitPercentage + '%') + ' · Coverage: ' + (item.Coverage__c === true ? 'Checked' : item.Coverage__c === false ? 'Unchecked' : 'Not loaded — click Refresh')).join('; ') : 'No Split for this PSE') : 'Not loaded — click Refresh';
   const action = (object) => review ? 'On hold — confirm assignment' : status==='blocked' ? 'Review required' : (p.changes || []).find(item => item.object === object)?.action || 'Already correct · No change';
   const correct = (object) => (ready || status==='complete') && !p.changes?.some(item=>item.object===object);
   const targetName = review ? 'Awaiting confirmed PSE' : target;
   const requiredTeam = esc(targetName) + '<br>' + esc(role) + '<br><span class="sub">' + esc('Opportunity Access: ' + opportunityAccessLabel(team[0]?.OpportunityAccessLevel || 'Read')) + '</span>';
-  const requiredSplit = esc(targetName) + '<br>' + esc(role) + '<br><span class="sub">' + esc(splits.length ? 'Keep existing type and percentage' : 'Overlay · 100.00%') + '</span>';
+  const requiredSplit = esc(targetName) + '<br>' + esc(role) + '<br><span class="sub">' + esc(splits.length ? 'Keep existing type and percentage' : 'Overlay · 100.00%') + '</span><br><label><input type="checkbox" disabled' + (role === 'Partner Account Executive - Coverage' ? ' checked' : '') + '> Coverage</label><div class="sub">Set automatically by Salesforce from the Split role</div>';
   const steps = planStep('1 · Partner Sales Rep field', p.fieldCurrent || (row.partnerRepNeedsPopulate ? 'Blank' : row.partnerRepName || '—'), esc(targetName), action('Opportunity'), correct('Opportunity')) +
     planStep('2 · Check Opportunity Team',currentTeam,requiredTeam,action('OpportunityTeamMember'),correct('OpportunityTeamMember')) +
     planStep('3 · Check Opportunity Splits',currentSplit,requiredSplit,action('OpportunitySplit'),correct('OpportunitySplit'));
@@ -417,7 +417,7 @@ async function updateOne(oppId, button) {
       "\nChanges:\n" + (preview.updatePlan?.changes || []).map(item=>item.action).join("\n") +
       "\nTeam role: " + (preview.updatePlan?.targetRole || TEAM_ROLE) + " (Opportunity Access: Read Only)" +
       "\nExisting split types/percentages: preserved; new Split: 100% Overlay" +
-      "\nSalesforce org: " + state.writeApi.org + "\n\nApply the reviewed PSE assignment, add missing entries and correct Team/Split roles as shown. Existing split types and percentages are preserved. Proceed?"
+      "\nSalesforce org: " + state.writeApi.org + "\n\nApply the reviewed PSE assignment, add missing entries and correct Team/Split roles as shown. Salesforce checks Coverage automatically for the Coverage Split role. Existing split types and percentages are preserved. Proceed?"
     );
     if (!okay) { message.textContent = "Cancelled — no Salesforce change was made."; button.disabled = false; return; }
     message.textContent = "Updating Salesforce…";
@@ -465,7 +465,7 @@ async function updateAll() {
     renderUpdate();
     const okay = window.confirm(
       "Update " + preview.idsToAdd.length.toLocaleString() + " Opportunities in " + state.writeApi.org +
-      "?\n\nApply only ready records after a fresh Salesforce recheck. Populate blank or explicitly reviewed PSE assignments, add missing Team/Split entries, and correct their roles. Existing split types and percentages remain unchanged. New Splits use Overlay at 100%.\n\nRecords needing review or RVP confirmation, blocked records, and records that changed are skipped. This includes all filtered pages."
+      "?\n\nApply only ready records after a fresh Salesforce recheck. Populate blank or explicitly reviewed PSE assignments, add missing Team/Split entries, and correct their roles. Existing split types and percentages remain unchanged. New Splits use Overlay at 100%. Salesforce checks Coverage automatically for the Coverage Split role.\n\nRecords needing review or RVP confirmation, blocked records, and records that changed are skipped. This includes all filtered pages."
     );
     if (!okay) { message.textContent = "Cancelled — no Salesforce changes were made."; button.disabled = false; return; }
     message.textContent = "Updating Salesforce… this may take several minutes.";
