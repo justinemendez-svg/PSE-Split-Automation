@@ -33,7 +33,7 @@ LIGHTNING_URL = "https://zendesk.lightning.force.com"
 SPLIT_TYPE_LABEL = "Overlay"
 SPLIT_PERCENTAGE = 100
 from workflow import CLOSED_STAGE, PARTNER_FIELD, EXCLUDED_PARTNER_TYPE
-from local_scope import LOCAL_SCOPE_VERSION, LOCAL_REP_FIELDS, local_rep_state, unique_opportunities, local_summary
+from local_scope import LOCAL_SCOPE_VERSION, LOCAL_REP_FIELDS, local_rep_state, unique_opportunities, local_summary, fiscal_window, scope_snapshot
 
 
 def sf_session(org: str | None) -> tuple[str, str]:
@@ -130,14 +130,16 @@ def classify(record: dict, team: list[dict], splits: list[dict]) -> dict:
     return result
 
 
-def build_soql() -> str:
+def build_soql(as_of=None) -> str:
+    start, end = fiscal_window(as_of)
     return (
         'SELECT Id, Name, StageName, CloseDate, Type, Amount, Non_Commissionable__c, Account.Name, Account.Owner.Name, '
         'Account_Owner_Market_Segment__c, Region__c, Partner_Deal_Source__c, Deal_Type__c, Total_Booking_ARR_in_USD__c, '
         + LOCAL_REP_FIELDS + f' FROM Opportunity WHERE {PARTNER_FIELD} != NULL '
         "AND Non_Commissionable__c = FALSE AND StageName = '08 - Closed' "
         "AND Partner_Type__c <> 'Startup Program Partner' "
-        "AND Referring_Partner__r.Name NOT IN ('AWS Marketplace') ORDER BY CloseDate DESC"
+        "AND Referring_Partner__r.Name NOT IN ('AWS Marketplace') "
+        f"AND CloseDate >= {start.isoformat()} AND CloseDate < {end.isoformat()} ORDER BY CloseDate DESC"
     )
 
 
@@ -211,16 +213,18 @@ def main() -> None:
     summary = local_summary(rows)
     data = {
         "generatedAt": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
-        "config": {"scope": "Commissionable 08 - Closed Partner opportunities; all Opportunity Types",
+        "config": {"scope": "Commissionable 08 - Closed Partner opportunities; previous and current fiscal quarters; all Opportunity Types",
                    "scopeVersion": LOCAL_SCOPE_VERSION, "excludedPartnerType": EXCLUDED_PARTNER_TYPE, "stage": CLOSED_STAGE, "partnerField": PARTNER_FIELD, "splitCheck": "any", "commissionableOnly": True,
                    "opportunityTypes": sorted({row['type'] for row in rows if row.get('type')}), "splitType": SPLIT_TYPE_LABEL,
                    "splitTypeId": split_type_id, "splitPercentage": SPLIT_PERCENTAGE},
         "summary": summary,
         "rows": rows,
     }
-    data['config'].update(scope='Commissionable 08 - Closed Partner opportunities; all Opportunity Types',
+    data['config'].update(scope='Commissionable 08 - Closed Partner opportunities; previous and current fiscal quarters; all Opportunity Types',
                           opportunityTypes=sorted({row['type'] for row in rows if row.get('type')}),
                           partnerTypeField='Partner_Type__c', excludedPartnerNames=['AWS Marketplace'])
+    data = scope_snapshot(data)
+    summary = data["summary"]
     os.makedirs(os.path.dirname(DATA_OUT), exist_ok=True)
     with open(DATA_OUT + ".tmp", "w", encoding="utf-8") as output:
         json.dump(data, output, ensure_ascii=False, indent=2)

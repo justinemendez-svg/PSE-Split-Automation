@@ -185,7 +185,7 @@
       <div id="actionEmpty" class="empty hidden">No Opportunities need a PSE field, Team, or Split update for these filters.</div>
       <div class="pagination"><span id="actionPageInfo"></span><button class="ghost" id="actionPrev">Previous</button><button class="ghost" id="actionNext">Next</button></div>
     </section>
-    <footer class="sub"><span>Commissionable Opportunities at Stage 08 - Closed with a tagged Partner; all Opportunity Types. Excludes Opportunity Partner Type Startup Program Partner and Partner AWS Marketplace. The worklist shows missing PSE fields or memberships, role corrections, and assignments requiring review.</span> When the PSE field is blank, membership checks use the Partner Owner. Existing PSE values change only after an explicit review; correct entries are preserved. Refresh reads Salesforce; Update actions apply the process after confirmation.</footer>
+    <footer class="sub"><span>Commissionable Opportunities at Stage 08 - Closed with a tagged Partner; previous and current fiscal quarters by Close Date; all Opportunity Types. Excludes Opportunity Partner Type Startup Program Partner and Partner AWS Marketplace. The worklist shows missing PSE fields or memberships, role corrections, and assignments requiring review.</span> When the PSE field is blank, membership checks use the Partner Owner. Existing PSE values change only after an explicit review; correct entries are preserved. Refresh reads Salesforce; Update actions apply the process after confirmation.</footer>
   </section>
 </main>
 
@@ -195,7 +195,7 @@
     <div class="process-intro"><h2 id="processTitle">Process Flow</h2><p>How the dashboard works</p></div>
     <p class="process-scope"><b>Filter:</b> Closed Opportunity · With Partner Tagged · Stage: 08 - Closed · Excludes Startup Program Partner</p>
     <section class="flow-step"><h3><span class="step-number">1</span> Does the closed Opportunity have a Partner tagged?</h3>
-      <p>Start with Opportunities whose Stage is exactly <b>08 - Closed</b>. Check whether the closed Opportunity has a tagged <b>Partner</b>.</p>
+      <p>Start with Opportunities whose Stage is exactly <b>08 - Closed</b> and whose Close Date is in the previous or current fiscal quarter. Check whether the closed Opportunity has a tagged <b>Partner</b>.</p>
       <div class="branches"><div class="branch"><strong>Partner is tagged → Continue</strong><p>Use the tagged Partner for this process. <span>Exclude the Opportunity if its Partner Type is Startup Program Partner or its tagged Partner is AWS Marketplace.</span></p></div><div class="branch"><strong>No Partner → Stop</strong><p>Skip this Opportunity. It does not appear in the worklist.</p></div></div>
       <p class="also">Salesforce field: the lookup labeled “Partner” is <code>Referring_Partner__c</code>.</p>
     </section><div class="flow-arrow" aria-hidden="true">↓</div>
@@ -225,7 +225,7 @@
       <h4>Search and filters</h4>
       <p>Search by <b>Opportunity name, Opportunity ID, or Account name</b>. Use the filters below to narrow the selected category. You can select multiple values in each filter; selections across different filters work together. Clear a filter’s selections to remove that restriction.</p>
       <dl class="help-filters">
-        <dt>Fiscal Quarter–Year</dt><dd>Filters by Opportunity Close Date using Zendesk’s fiscal calendar: Q1 Feb–Apr, Q2 May–Jul, Q3 Aug–Oct, and Q4 Nov–Jan. For example, November 2026 through January 2027 is FY2027 Q4.</dd>
+        <dt>Fiscal Quarter–Year</dt><dd>Narrows the previous-and-current-quarter data by Opportunity Close Date, using Zendesk’s fiscal calendar: Q1 Feb–Apr, Q2 May–Jul, Q3 Aug–Oct, and Q4 Nov–Jan. For example, November 2026 through January 2027 is FY2027 Q4.</dd>
         <dt>Month</dt><dd>Filters by Opportunity Close Date. Month choices follow the selected fiscal quarters. For example, FY2027 Q4 shows November 2026, December 2026, and January 2027. Select multiple months if needed; changing quarters clears unavailable month selections.</dd>
         <dt>Opportunity Type</dt><dd><span>Choose any Opportunity Types present in the current data; there is no fixed Type restriction.</span></dd>
         <dt>Market Segment</dt><dd>Filters by the Opportunity’s Account Owner Market Segment.</dd>
@@ -236,7 +236,7 @@
       <div data-local-actions><h4>Update and export</h4>
       <p><b>Update in Salesforce</b> applies the process to one Opportunity after confirmation. <b>Update all ready — N in Salesforce</b> applies it only to ready records across all filtered pages. Records needing review, RVP confirmation or missing information are skipped. <b>Export CSV</b> downloads that same filtered list.</p>
       <p>Refresh only reads Salesforce. Update actions preserve an existing PSE, populate a blank PSE from the tagged Partner’s Owner, and add missing Team and Split entries. Each Opportunity uses its current or explicitly reviewed PSE. Blank or different roles are corrected; existing access levels, split types, and percentages are preserved; Salesforce errors are reported so you can retry the remaining steps.</p>
-      </div><p><b>Scope:</b> <span>Commissionable Opportunities at Stage <b>08 - Closed</b>, with a Partner tagged, across all Opportunity Types. Excludes <b>Opportunity Partner_Type__c = Startup Program Partner</b> and tagged Partner <b>AWS Marketplace</b>. The Region filter uses the tagged Partner’s Region. No automatic Close Date restriction applies.</span></p>
+      </div><p><b>Scope:</b> <span>Commissionable Opportunities at Stage <b>08 - Closed</b>, with a Partner tagged, across all Opportunity Types. Excludes <b>Opportunity Partner_Type__c = Startup Program Partner</b> and tagged Partner <b>AWS Marketplace</b>. The Region filter uses the tagged Partner’s Region. Close Date must fall in the previous or current fiscal quarter. The two-quarter window moves forward with Zendesk’s fiscal calendar.</span></p>
     </section>
   </div>
 </dialog>

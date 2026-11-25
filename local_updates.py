@@ -70,7 +70,7 @@ def decorate(row, approval=None):
 
 def read_current(ids, query, approvals=None):
     quoted=','.join("'"+key+"'" for key in ids)
-    records=query('SELECT Id, Name, StageName, Type, Non_Commissionable__c, '+LOCAL_REP_FIELDS+' FROM Opportunity WHERE Id IN ('+quoted+')')
+    records=query('SELECT Id, Name, StageName, CloseDate, Type, Non_Commissionable__c, '+LOCAL_REP_FIELDS+' FROM Opportunity WHERE Id IN ('+quoted+')')
     team=query('SELECT Id, OpportunityId, UserId, User.Name, TeamMemberRole, OpportunityAccessLevel FROM OpportunityTeamMember WHERE OpportunityId IN ('+quoted+')')
     splits=query('SELECT Id, OpportunityId, SplitOwnerId, SplitOwner.Name, SplitType.MasterLabel, Opportunity_Team_Role__c, SplitPercentage FROM OpportunitySplit WHERE OpportunityId IN ('+quoted+')')
     states={}

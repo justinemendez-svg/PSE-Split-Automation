@@ -3,6 +3,7 @@ import copy
 import re
 import unittest
 from workflow import PARTNER_FIELD, PARTNER_REL
+from local_scope import fiscal_window
 
 
 class SalesforceStub:
@@ -10,7 +11,7 @@ class SalesforceStub:
         self.rep = '005000000000001AAA'
         self.owner = '005000000000002AAA'
         self.opp_id = '006000000000001AAA'
-        self.record = {'Id': self.opp_id, 'Name': 'Example', 'StageName': '08 - Closed', 'Type': 'Renewal',
+        self.record = {'Id': self.opp_id, 'Name': 'Example', 'StageName': '08 - Closed', 'Type': 'Renewal', 'CloseDate': fiscal_window()[0].isoformat(),
                        'Non_Commissionable__c': False, PARTNER_FIELD: '001000000000001AAA',
                        PARTNER_REL: {'Name': 'Partner', 'OwnerId': self.owner,
                                      'Owner': {'Name': 'Owner', 'IsActive': active}},

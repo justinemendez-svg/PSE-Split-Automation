@@ -1,7 +1,8 @@
 """Local-only scope and field checks; no Salesforce calls."""
 import copy
+import datetime as dt
 import unittest
-from local_scope import in_local_scope, LOCAL_REP_FIELDS, local_rep_state, unique_opportunities, local_summary
+from local_scope import in_local_scope, LOCAL_REP_FIELDS, local_rep_state, unique_opportunities, local_summary, fiscal_window, in_fiscal_window, scope_snapshot
 from workflow import PARTNER_REL
 from refresh import build_soql, classify
 from salesforce_stub import SalesforceStub
@@ -66,3 +67,45 @@ class LocalScopeChecks(unittest.TestCase):
         sf.record[PARTNER_REL]['Name'] = 'AWS Marketplace'
         sf.local_run(write=True)
         self.assertEqual(sf.writes, [])
+
+    def test_rolling_two_quarters_across_fiscal_year(self):
+        cases = [
+            ('2026-11-25', '2026-08-01', '2027-02-01'),
+            ('2027-01-31', '2026-08-01', '2027-02-01'),
+            ('2027-02-01', '2026-11-01', '2027-05-01'),
+            ('2027-05-01', '2027-02-01', '2027-08-01'),
+            ('2027-08-01', '2027-05-01', '2027-11-01'),
+            ('2028-02-29', '2027-11-01', '2028-05-01'),
+        ]
+        for today, start, end in cases:
+            as_of = dt.date.fromisoformat(today)
+            with self.subTest(today=today):
+                self.assertEqual(tuple(item.isoformat() for item in fiscal_window(as_of)), (start, end))
+                self.assertTrue(in_fiscal_window(start, as_of))
+                self.assertTrue(in_fiscal_window((dt.date.fromisoformat(end)-dt.timedelta(days=1)).isoformat(), as_of))
+                self.assertFalse(in_fiscal_window(end, as_of))
+                self.assertFalse(in_fiscal_window((dt.date.fromisoformat(start)-dt.timedelta(days=1)).isoformat(), as_of))
+                self.assertFalse(in_fiscal_window(None, as_of))
+                self.assertFalse(in_fiscal_window('2027-02-30', as_of))
+                sql = build_soql(as_of)
+                self.assertIn('CloseDate >= '+start, sql)
+                self.assertIn('CloseDate < '+end, sql)
+
+    def test_saved_snapshot_is_narrowed_without_changing_extraction_time(self):
+        rows = [{'id': '00600000000000'+str(n), 'closeDate': date, 'updatePlan': {'status': 'ready'}}
+                for n, date in enumerate(['2026-07-31', '2026-08-01', '2027-01-31', '2027-02-01'])]
+        original = {'rows': rows, 'generatedAt': 'saved extraction', 'config': {'scopeVersion': 6}}
+        scoped = scope_snapshot(original, dt.date(2026, 11, 25))
+        self.assertEqual([row['closeDate'] for row in scoped['rows']], ['2026-08-01', '2027-01-31'])
+        self.assertEqual(scoped['summary']['total'], 2)
+        self.assertEqual(scoped['generatedAt'], original['generatedAt'])
+        self.assertEqual(len(original['rows']), 4)
+
+    def test_stale_opportunity_cannot_be_updated(self):
+        for date in [fiscal_window()[0]-dt.timedelta(days=1), fiscal_window()[1]]:
+            sf = DetailedSalesforce(team_role=None, split_role=None)
+            sf.record['CloseDate'] = date.isoformat()
+            result = sf.local_run(write=True)
+            self.assertEqual(sf.writes, [])
+            self.assertEqual(result['idsToAdd'], [])
+            self.assertFalse(result['states'][sf.opp_id]['inScope'])

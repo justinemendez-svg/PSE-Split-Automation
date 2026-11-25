@@ -20,7 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from workflow import CLOSED_STAGE, EXCLUDED_PARTNER_TYPE, is_complete
-from local_scope import LOCAL_SCOPE_VERSION, unique_opportunities, local_summary
+from local_scope import LOCAL_SCOPE_VERSION, unique_opportunities, local_summary, in_fiscal_window, scope_snapshot
 from local_updates import execute_local, read_current, decorate, VALID_ROLES, COVERAGE_ROLE
 
 from refresh import (
@@ -130,6 +130,7 @@ def allowed_missing_ids() -> set[str]:
             if row.get("id") and row.get("partnerId") and row.get("stage") == CLOSED_STAGE and row.get("nonCommissionable") is False
             and 'partnerType' in row and row.get('partnerType') != EXCLUDED_PARTNER_TYPE
             and row.get('partnerName') != 'AWS Marketplace'
+            and in_fiscal_window(row.get('closeDate'))
             and (row.get('updatePlan',{}).get('status') != 'complete' if row.get('updatePlan') else not is_complete(row))}
 
 
@@ -207,6 +208,11 @@ class Handler(BaseHTTPRequestHandler):
                                         "splitType": SPLIT_TYPE_LABEL, "splitPercentage": SPLIT_PERCENTAGE, "scopeVersion": LOCAL_SCOPE_VERSION})
         if path == "/":
             path = "/index.html"
+        if path == "/pse-data.json" and DATA.is_file():
+            try:
+                return self.send_json(200, scope_snapshot(json.loads(DATA.read_text(encoding="utf-8"))))
+            except (OSError, ValueError, TypeError) as error:
+                return self.send_json(500, {"error": "Saved snapshot could not be read: " + str(error)})
         target = (DOCS / path.lstrip("/")).resolve()
         try:
             target.relative_to(DOCS.resolve())

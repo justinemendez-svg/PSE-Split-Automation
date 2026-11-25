@@ -1,5 +1,6 @@
 """Local HTTP adapter contract checks with all Salesforce operations mocked."""
 import json
+import datetime as dt
 import tempfile
 import threading
 import unittest
@@ -8,6 +9,7 @@ import urllib.request
 from pathlib import Path
 from unittest.mock import patch
 import serve_local
+from local_scope import fiscal_window
 
 
 class QuietHandler(serve_local.Handler):
@@ -20,7 +22,7 @@ class HTTPChecks(unittest.TestCase):
         cls.temp=tempfile.TemporaryDirectory(prefix='pse-http-checks-')
         cls.root=Path(cls.temp.name)
         cls.opp='006000000000001AAA'
-        cls.snapshot={'config':{'scopeVersion':6},'summary':{'total':1},'rows':[{'id':cls.opp,'name':'Offline example','stage':'08 - Closed','type':'Renewal','nonCommissionable':False,'partnerType':None,'partnerId':'001000000000001AAA','partnerRepOnTeam':False,'partnerRepOnSplit':False}]}
+        cls.snapshot={'config':{'scopeVersion':6},'summary':{'total':1},'rows':[{'id':cls.opp,'name':'Offline example','stage':'08 - Closed','closeDate':fiscal_window()[0].isoformat(),'type':'Renewal','nonCommissionable':False,'partnerType':None,'partnerId':'001000000000001AAA','partnerRepOnTeam':False,'partnerRepOnSplit':False}]}
         (cls.root/'index.html').write_text('<h1>Offline dashboard</h1>')
         (cls.root/'pse-data.json').write_text(json.dumps(cls.snapshot))
         cls.paths=patch.multiple(serve_local,DOCS=cls.root,DATA=cls.root/'pse-data.json')
@@ -99,3 +101,23 @@ class HTTPChecks(unittest.TestCase):
             status,body=self.request('/api/preview',{'oppId':self.opp})
             self.assertEqual(status,502)
             self.assertIn('network',json.loads(body)['error'])
+
+    def test_saved_data_and_update_eligibility_are_limited_without_refresh(self):
+        old = dict(self.snapshot['rows'][0], id='006000000000002AAA',
+                   closeDate=(fiscal_window()[0]-dt.timedelta(days=1)).isoformat())
+        data = {**self.snapshot, 'generatedAt': 'original extraction',
+                'rows': [self.snapshot['rows'][0], old]}
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / 'pse-data.json'
+            original = json.dumps(data)
+            target.write_text(original)
+            with patch.object(serve_local, 'DATA', target), patch.object(serve_local.subprocess, 'run') as command:
+                status, body = self.request('/pse-data.json')
+                visible = json.loads(body)
+                self.assertEqual(status, 200)
+                self.assertEqual([row['id'] for row in visible['rows']], [self.opp])
+                self.assertEqual(visible['summary']['total'], 1)
+                self.assertEqual(visible['generatedAt'], 'original extraction')
+                self.assertEqual(serve_local.allowed_missing_ids(), {self.opp})
+                command.assert_not_called()
+            self.assertEqual(target.read_text(), original)

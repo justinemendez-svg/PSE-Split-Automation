@@ -31,7 +31,7 @@ AND Partner_Type__c <> 'Startup Program Partner'
 AND Referring_Partner__r.Name NOT IN ('AWS Marketplace')
 ```
 
-All Opportunity Types are included, with no automatic Close Date restriction. Partner Type is the Opportunity's `Partner_Type__c`; Partner Account Type is retained separately. Region uses `Referring_Partner__r.Region__c`.
+All Opportunity Types are included. Close Date is restricted to the previous and current Zendesk fiscal quarters, based on today in Asia/Manila. FY2027 Q4 includes FY2027 Q3 + Q4 (1 August 2026–31 January 2027); FY2028 Q1 includes FY2027 Q4 + FY2028 Q1; FY2028 Q2 includes FY2028 Q1 + Q2. The window rolls forward without changing code. Saved snapshots are narrowed to the current window on load; fresh Salesforce data is still fetched only when Refresh is clicked. Partner Type is the Opportunity's `Partner_Type__c`; Partner Account Type is retained separately. Region uses `Referring_Partner__r.Region__c`.
 
 ## Using the dashboard
 

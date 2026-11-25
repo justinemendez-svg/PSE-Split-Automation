@@ -26,7 +26,8 @@ const document={body:{style:{overflow:""}},getElementById:(id)=>{assert(nodes.ha
   querySelector:(selector)=>messages.get(/data-msg="([^"]+)"/.exec(selector)?.[1])||null,
   querySelectorAll:(selector)=>selector==='[data-pse-category]'?categories:selector==='.multi-filter'?['quarterFilter','monthFilter','typeFilter','segmentFilter','regionFilter','pseStatusFilter'].map(id=>nodes.get(id)):[],
   addEventListener:()=>{}, createElement:()=>({click(){},set href(value){},set download(value){}})};
-const context={document,console,CSS:{escape:value=>value},setTimeout:()=>1,clearTimeout:()=>{},window:{confirm:()=>false},Blob:class{constructor(chunks){csv=chunks.join('');}},URL:{createObjectURL:()=>'',revokeObjectURL:()=>{}}};
+class FixedDate extends Date { constructor(...args) { super(...(args.length ? args : ["2026-11-25T04:00:00Z"])); } static now() { return new Date("2026-11-25T04:00:00Z").getTime(); } }
+const context={Date:FixedDate,document,console,CSS:{escape:value=>value},setTimeout:()=>1,clearTimeout:()=>{},window:{confirm:()=>false},Blob:class{constructor(chunks){csv=chunks.join('');}},URL:{createObjectURL:()=>'',revokeObjectURL:()=>{}}};
 vm.createContext(context);
 vm.runInContext(fs.readFileSync('docs/app.js','utf8').replace(/load\(\);\s*$/,''),context);
 const base={partnerType:null,partnerId:'partner',partnerOwnerId:'005000000000001AAA',partnerRepId:'005000000000001AAA',stage:'08 - Closed',nonCommissionable:false,type:'Renewal',partnerRepOnTeam:false,partnerRepOnSplit:false,partnerRepActive:true,partnerRepName:'Example PSE',closeDate:'2026-11-24'};
@@ -116,8 +117,17 @@ const response=value=>({ok:true,status:200,json:async()=>value});
    assert.deepStrictEqual(Array.from(run('state.filterOptions.month')),['2026-08','2026-09','2026-10']);
    assert.deepStrictEqual(Array.from(run('filteredRows().map(row=>row.id)')),['aug']);
    nodes.get('quarterFilter').events.click({target:{closest:()=>({hasAttribute:()=>false})},stopPropagation:()=>{}});
-   assert.equal(run('state.fiscalQuarter.size'),0);assert.equal(run('state.filterOptions.month.length'),5);
+   assert.equal(run('state.fiscalQuarter.size'),0);assert.equal(run('state.filterOptions.month.length'),4);
    assert.equal(requests.length,1); // All month/quarter/region changes stay local.
+   for(const [today,start,end] of [['2026-11-25T04:00:00Z','2026-08-01','2027-02-01'],['2027-02-01T04:00:00Z','2026-11-01','2027-05-01'],['2027-05-01T04:00:00Z','2027-02-01','2027-08-01'],['2027-01-31T16:00:00Z','2026-11-01','2027-05-01']]) {
+     context.asOf=today;
+     assert.deepStrictEqual(Array.from(run('fiscalWindowBounds(new Date(asOf))')),[start,end]);
+     context.bounds=[start,end]; context.boundary=start;
+     assert(run('inFiscalWindow(boundary,bounds)'));
+     context.boundary=end; assert(!run('inFiscalWindow(boundary,bounds)'));
+   }
+   assert(!run('inFiscalWindow("2026-07-31")'));
+   assert(!run('inFiscalWindow("2027-02-01")'));
    nodes.get('processFlowBtn').events.click();
    assert(nodes.get('processFlow').open);
    nodes.get('closeProcessFlow').events.click();

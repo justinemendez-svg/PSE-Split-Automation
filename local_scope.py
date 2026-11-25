@@ -1,10 +1,44 @@
 """Current closed Partner Opportunity scope and snapshot classification."""
 import re
+import datetime as dt
 from workflow import CLOSED_STAGE, EXCLUDED_PARTNER_TYPE, PARTNER_FIELD, PARTNER_REL, REP_FIELDS, rep_state, is_complete
 
 LOCAL_SCOPE_VERSION = 6
 LOCAL_REP_FIELDS = (REP_FIELDS + ', Partner_Type__c, ' + PARTNER_REL + '.Region__c, '
                     + PARTNER_REL + '.Owner.Profile.Name, Partner_Sales_Rep__r.Profile.Name')
+
+
+def fiscal_window(as_of=None):
+    """Previous and current Zendesk fiscal quarters, end exclusive (Manila date)."""
+    today = as_of if as_of is not None else dt.datetime.now(dt.timezone(dt.timedelta(hours=8))).date()
+    fiscal_start_year = today.year if today.month >= 2 else today.year - 1
+    quarter = ((today.month - 2) % 12) // 3
+    current_month = fiscal_start_year * 12 + 1 + quarter * 3
+    def first_of_month(index):
+        year, month = divmod(index, 12)
+        return dt.date(year, month + 1, 1)
+    return first_of_month(current_month - 3), first_of_month(current_month + 3)
+
+
+def in_fiscal_window(value, as_of=None):
+    try:
+        close_date = dt.date.fromisoformat(value)
+    except (TypeError, ValueError):
+        return False
+    start, end = fiscal_window(as_of)
+    return start <= close_date < end
+
+
+def scope_snapshot(data, as_of=None):
+    """Narrow saved data without a Salesforce fetch or changing extraction time."""
+    as_of = as_of if as_of is not None else dt.datetime.now(dt.timezone(dt.timedelta(hours=8))).date()
+    start, end = fiscal_window(as_of)
+    rows = [row for row in unique_opportunities(data.get('rows', []))
+            if in_fiscal_window(row.get('closeDate'), as_of)]
+    return {**data, 'rows': rows, 'summary': local_summary(rows),
+            'config': {**data.get('config', {}), 'fiscalWindow': {
+                'start': start.isoformat(), 'endExclusive': end.isoformat(),
+                'basis': 'CloseDate', 'quarters': 2, 'timeZone': 'Asia/Manila'}}}
 
 
 def opportunity_key(value):
@@ -30,12 +64,13 @@ def local_summary(rows):
             'needsPopulate':sum(bool(row.get('partnerRepNeedsPopulate')) for row in rows)}
 
 
-def in_local_scope(record):
+def in_local_scope(record, as_of=None):
     return (bool(record.get(PARTNER_FIELD))
             and record.get('Non_Commissionable__c') is False
             and record.get('StageName') == CLOSED_STAGE
             and record.get('Partner_Type__c') != EXCLUDED_PARTNER_TYPE
-            and (record.get(PARTNER_REL) or {}).get('Name') != 'AWS Marketplace')
+            and (record.get(PARTNER_REL) or {}).get('Name') != 'AWS Marketplace'
+            and in_fiscal_window(record.get('CloseDate'), as_of))
 
 
 def local_rep_state(record, team=(), splits=()):

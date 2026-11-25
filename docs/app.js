@@ -38,6 +38,21 @@ function fiscalQuarterFromDate(value) {
   return "FY" + fiscalYear + " Q" + quarter;
 }
 
+function fiscalWindowBounds(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {timeZone:'Asia/Manila',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);
+  const part = key => parts.find(item=>item.type===key).value;
+  const current = quarterMonths(fiscalQuarterFromDate(part('year')+'-'+part('month')+'-'+part('day')))[0];
+  const [year, month] = current.split('-').map(Number);
+  const stamp = offset => {
+    const date = new Date(Date.UTC(year,month-1+offset,1));
+    return date.toISOString().slice(0,10);
+  };
+  return [stamp(-3), stamp(3)];
+}
+function inFiscalWindow(value, bounds = fiscalWindowBounds()) {
+  return fiscalQuarterFromDate(value) !== 'Close date unavailable' && value >= bounds[0] && value < bounds[1];
+}
+
 function fmtCount(value) { return Number(value || 0).toLocaleString("en-US"); }
 function monthLabel(value) {
   const [year,month] = value.split('-').map(Number);
@@ -154,7 +169,8 @@ function hydrate(data) {
     status.textContent = "This dashboard needs a current Salesforce snapshot. Click Refresh to load the latest data.";
     return false;
   }
-  state.rows = uniqueOpportunityRows(data.rows || []).map((row) => ({ ...row, fiscalQuarter: fiscalQuarterFromDate(row.closeDate), closeMonth:fiscalQuarterFromDate(row.closeDate)==='Close date unavailable'?null:row.closeDate.slice(0,7) }));
+  const fiscalBounds = fiscalWindowBounds();
+  state.rows = uniqueOpportunityRows(data.rows || []).filter(row=>inFiscalWindow(row.closeDate, fiscalBounds)).map((row) => ({ ...row, fiscalQuarter: fiscalQuarterFromDate(row.closeDate), closeMonth:fiscalQuarterFromDate(row.closeDate)==='Close date unavailable'?null:row.closeDate.slice(0,7) }));
   state.rowsById = new Map(state.rows.map((row) => [row.id, row]));
   const completeCount = state.rows.filter(row=>rowComplete(row)).length;
   state.summary = { ...(data.summary || {}), total:state.rows.length, tagged:completeCount, needsUpdate:state.rows.length-completeCount,
@@ -211,9 +227,10 @@ function matchesCategory(row, category) {
 }
 
 function filteredRows(category = state.pseCategory, applyReadiness = true) {
+  const fiscalBounds = fiscalWindowBounds();
   let rows = uniqueOpportunityRows(state.rows).filter((row) => row.inScope !== false && row.nonCommissionable === false && row.stage === CLOSED_STAGE &&
     Object.prototype.hasOwnProperty.call(row, "partnerType") && row.partnerType !== EXCLUDED_PARTNER_TYPE &&
-    row.partnerName !== "AWS Marketplace" && row.partnerId && !rowComplete(row));
+    row.partnerName !== "AWS Marketplace" && inFiscalWindow(row.closeDate, fiscalBounds) && row.partnerId && !rowComplete(row));
   ["type", "segment", "region", "pseStatus", "fiscalQuarter", "month"].forEach((key) => {
     const selected = state[key];
     const options = state.filterOptions[key];

@@ -3,7 +3,7 @@ import copy
 import datetime as dt
 import json
 import re
-from local_scope import LOCAL_SCOPE_VERSION, opportunity_key, local_summary
+from local_scope import LOCAL_SCOPE_VERSION, opportunity_key, local_summary, in_fiscal_window
 from workflow import CLOSED_STAGE, EXCLUDED_PARTNER_TYPE
 
 
@@ -33,6 +33,7 @@ def validate_snapshot(value):
         seen.add(key)
         if (row.get('stage') != CLOSED_STAGE or row.get('nonCommissionable') is not False
                 or not row.get('partnerId') or 'partnerType' not in row
+                or not in_fiscal_window(row.get('closeDate'))
                 or row['partnerType'] == EXCLUDED_PARTNER_TYPE or row.get('partnerName') == 'AWS Marketplace'):
             raise ValueError(f'Row {number} is outside the current closed Partner scope.')
         if row.get('membershipDetailsLoaded') is not True:
