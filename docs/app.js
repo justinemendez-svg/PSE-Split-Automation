@@ -285,13 +285,40 @@ function opportunityCard(row) {
   const steps = planStep('1 · Partner Sales Rep field', p.fieldCurrent || (row.partnerRepNeedsPopulate ? 'Blank' : row.partnerRepName || '—'), esc(targetName), action('Opportunity'), correct('Opportunity')) +
     planStep('2 · Check Opportunity Team',currentTeam,requiredTeam,action('OpportunityTeamMember'),correct('OpportunityTeamMember')) +
     planStep('3 · Check Opportunity Splits',currentSplit,requiredSplit,action('OpportunitySplit'),correct('OpportunitySplit'));
-  const reviewButton = review ? '<button class="ghost" data-review-open="' + esc(row.id) + '">' + (status==='rvp'?'Set covering PSE':'Review assignment') + '</button>' : '';
+  const canReview = review || p.retainedInactive === true;
+  const needsRvp = row.partnerRepActive === false;
+  const reviewButton = canReview ? '<button class="ghost" data-review-open="' + esc(row.id) + '">' + (needsRvp?'Set covering PSE':'Review assignment') + '</button>' : '';
   const updateButton = '<button class="btn-update" data-update="' + esc(row.id) + '"' + ((!ready || state.busy || !state.writeApi.enabled) ? ' disabled' : '') + '>' + (ready?'Update in Salesforce →':names[status]) + '</button>';
-  const form = review ? '<section class="assignment-review hidden" data-review-panel="' + esc(row.id) + '"><b>' + (status==='rvp'?'Record the RVP-approved covering PSE':'Confirm the PSE assignment') + '</b><div class="review-fields"><label>Search active Salesforce users<input type="search" data-user-query placeholder="Enter a name"></label><button class="ghost" data-user-search="' + esc(row.id) + '">Search users</button><label>Confirmed PSE<select data-review-user>' + (row.partnerRepActive===true?'<option value="'+esc(row.partnerRepId)+'">'+esc(row.partnerRepName)+'</option>':'<option value="">Choose an active PSE</option>') + '</select></label><label>Required role<select data-review-role><option>' + TEAM_ROLE + '</option><option' + (status==='rvp'?' selected':'') + '>Partner Account Executive - Coverage</option></select></label></div><label class="review-confirm"><input type="checkbox" data-review-confirm> ' + (status==='rvp'?'RVP confirmation received for this covering PSE':'I reviewed and confirmed this assignment') + '</label><div class="review-fields"><button data-review-save="' + esc(row.id) + '">Confirm assignment</button><span class="sub">Saves the review locally. Salesforce changes require Update confirmation.</span></div><div data-review-message class="msg" aria-live="polite"></div></section>' : '';
-  return '<article class="action-card needs-update" data-card="' + esc(row.id) + '"><div class="action-head"><div class="head-main"><div class="opp-title"><a href="' + esc(href) + '" target="_blank" rel="noopener">' + esc(row.name || 'Unnamed Opportunity') + '</a></div><div class="details-line">' + esc(detailsLine(row)) + '</div><div class="details-line">' + esc(partnerDetailsLine(row)) + '</div><div class="details-line">Partner: ' + esc(row.partnerName || '—') + ' · Partner Owner: <span class="' + nameClass.trim() + '">' + esc(row.partnerOwnerName || '—') + '</span></div><div class="pse-tag"><b>' + (row.partnerRepNeedsPopulate?'PSE to populate':'PSE Tagged') + '</b><span class="pse-name' + nameClass + '">' + esc(row.partnerRepName || '—') + '</span><span class="pill' + (row.partnerRepActive!==true?' warn':'') + '">' + pseStatus(row) + '</span></div><div class="readiness-row"><span class="readiness-badge ' + status + '">' + names[status] + '</span><span class="sub">' + esc(p.reason || (p.changes?.length || 0) + ' changes needed') + '</span></div><div class="msg" data-msg="' + esc(row.id) + '" aria-live="polite"></div></div></div><div class="action-steps">' + steps + '</div>' + form + '<div class="action-footer"><span class="sub">Existing correct entries and split percentages are preserved.</span><div class="review-fields">' + reviewButton + updateButton + '</div></div></article>';
+  const inactiveButton = needsRvp && (status==='rvp' || p.retainedInactive) ? '<button class="ghost" data-retain-inactive="'+esc(row.id)+'"'+(p.retainedInactive?' disabled':'')+'>'+(p.retainedInactive?'Inactive PSE selected':'Set inactive PSE')+'</button>' : '';
+  const form = canReview ? '<section class="assignment-review hidden" data-review-panel="' + esc(row.id) + '"><b>' + (needsRvp?'Record the RVP-approved covering PSE':'Confirm the PSE assignment') + '</b><div class="review-fields"><label>Search active Salesforce users<input type="search" data-user-query placeholder="Enter a name"></label><button class="ghost" data-user-search="' + esc(row.id) + '">Search users</button><label>Confirmed PSE<select data-review-user>' + (row.partnerRepActive===true?'<option value="'+esc(row.partnerRepId)+'">'+esc(row.partnerRepName)+'</option>':'<option value="">Choose an active PSE</option>') + '</select></label><label>Required role<select data-review-role><option>' + TEAM_ROLE + '</option><option' + (needsRvp?' selected':'') + '>Partner Account Executive - Coverage</option></select></label></div><label data-coverage-choice class="review-confirm'+(needsRvp?'':' hidden')+'"><input type="checkbox" data-coverage-confirm> Tick coverage box</label><label class="review-confirm"><input type="checkbox" data-review-confirm> ' + (needsRvp?'RVP confirmation received for this covering PSE':'I reviewed and confirmed this assignment') + '</label><div class="review-fields"><button data-review-save="' + esc(row.id) + '">Confirm assignment</button><span class="sub">Saves the review locally. Salesforce changes require Update confirmation.</span></div><div data-review-message class="msg" aria-live="polite"></div></section>' : '';
+  return '<article class="action-card needs-update" data-card="' + esc(row.id) + '"><div class="action-head"><div class="head-main"><div class="opp-title"><a href="' + esc(href) + '" target="_blank" rel="noopener">' + esc(row.name || 'Unnamed Opportunity') + '</a></div><div class="details-line">' + esc(detailsLine(row)) + '</div><div class="details-line">' + esc(partnerDetailsLine(row)) + '</div><div class="details-line">Partner: ' + esc(row.partnerName || '—') + ' · Partner Owner: <span class="' + nameClass.trim() + '">' + esc(row.partnerOwnerName || '—') + '</span></div><div class="pse-tag"><b>' + (row.partnerRepNeedsPopulate?'PSE to populate':'PSE Tagged') + '</b><span class="pse-name' + nameClass + '">' + esc(row.partnerRepName || '—') + '</span><span class="pill' + (row.partnerRepActive!==true?' warn':'') + '">' + pseStatus(row) + '</span></div><div class="readiness-row"><span class="readiness-badge ' + status + '">' + names[status] + '</span><span class="sub">' + esc(p.reason || (p.changes?.length || 0) + ' changes needed') + '</span></div><div class="msg" data-msg="' + esc(row.id) + '" aria-live="polite"></div></div></div><div class="action-steps">' + steps + '</div>' + form + '<div class="action-footer"><span class="sub">Existing correct entries and split percentages are preserved.</span><div class="review-fields">' + reviewButton + inactiveButton + updateButton + '</div></div></article>';
 }
 
+async function setInactivePse(oppId) {
+  if(state.busy)return;
+  const row=state.rowsById.get(oppId);
+  if(!row || row.partnerRepActive!==false)return;
+  if(!window.confirm('Keep/use '+row.partnerRepName+' even though this PSE is inactive?\n\nOpportunity: '+row.name+'\n\nThis saves your choice locally only. Salesforce changes still require Update and confirmation.'))return;
+  setBusy(true);
+  let errorMessage='';
+  try {
+    setRowState(oppId,await postJson('/api/review-inactive-pse',{oppId,confirmed:true}));
+  } catch(error) {
+    errorMessage=error.message;
+  } finally {
+    setBusy(false);
+    const message=document.querySelector('[data-msg="'+CSS.escape(oppId)+'"]');
+    if(message&&errorMessage){message.textContent=errorMessage;message.className='msg err';}
+  }
+}
+function toggleCoverageChoice(panel) {
+  const selected=panel.querySelector('[data-review-role]').value==='Partner Account Executive - Coverage';
+  panel.querySelector('[data-coverage-choice]').classList.toggle('hidden',!selected);
+  panel.querySelector('[data-coverage-confirm]').checked=false;
+}
 function wireCardUpdates(containerId) {
+  $(containerId).querySelectorAll('select[data-review-role]').forEach(select=>select.addEventListener('change',()=>toggleCoverageChoice(select.closest('[data-review-panel]'))));
+  $(containerId).querySelectorAll('button[data-retain-inactive]').forEach(button=>button.addEventListener('click',()=>setInactivePse(button.dataset.retainInactive)));
   $(containerId).querySelectorAll("button[data-update]").forEach((button) =>
     button.addEventListener("click", () => updateOne(button.dataset.update, button)));
   $(containerId).querySelectorAll('button[data-review-open]').forEach(button=>button.addEventListener('click',()=>{
@@ -312,7 +339,10 @@ function wireCardUpdates(containerId) {
     const message=panel.querySelector('[data-review-message]');
     const confirmed=panel.querySelector('[data-review-confirm]').checked;
     if(!confirmed){message.textContent='Confirm the assignment before saving the review.';return;}
-    const payload={oppId:id,userId:panel.querySelector('[data-review-user]').value,role:panel.querySelector('[data-review-role]').value,confirmed:true,rvpConfirmed:readiness(state.rowsById.get(id))==='rvp'};
+    const role=panel.querySelector('[data-review-role]').value;
+    const coverageConfirmed=panel.querySelector('[data-coverage-confirm]').checked;
+    if(role==='Partner Account Executive - Coverage' && !coverageConfirmed){message.textContent='Tick coverage box before confirming this assignment.';return;}
+    const payload={coverageConfirmed,oppId:id,userId:panel.querySelector('[data-review-user]').value,role:panel.querySelector('[data-review-role]').value,confirmed:true,rvpConfirmed:state.rowsById.get(id).partnerRepActive===false};
     button.disabled=true;message.textContent='Checking and saving local review…';
     try{setRowState(id,await postJson('/api/review',payload));renderUpdate();}
     catch(error){message.textContent=error.message;button.disabled=false;}
@@ -394,7 +424,7 @@ function setRowState(oppId, value) {
 
 function setBusy(value) {
   state.busy = value;
-  document.querySelectorAll('#search, .filter-trigger, .filter-menu input, .filter-actions button, [data-pse-category], #actionPrev, #actionNext, #csvBtn, #refreshBtn, #updateAllBtn, [data-readiness], button[data-update],button[data-review-open],button[data-user-search],button[data-review-save],.assignment-review input,.assignment-review select').forEach((control) => { control.disabled = value; });
+  document.querySelectorAll('#search, .filter-trigger, .filter-menu input, .filter-actions button, [data-pse-category], #actionPrev, #actionNext, #csvBtn, #refreshBtn, #updateAllBtn, [data-readiness], button[data-update],button[data-review-open],button[data-retain-inactive],button[data-user-search],button[data-review-save],.assignment-review input,.assignment-review select').forEach((control) => { control.disabled = value; });
   if (!value) renderUpdate();
 }
 

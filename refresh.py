@@ -197,14 +197,14 @@ def main() -> None:
     except (OSError,ValueError,KeyError):
         reviews={}
     selected=sorted({review.get('userId','') for review in reviews.values() if re.fullmatch(r'005[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?',review.get('userId',''))})
-    active=set()
+    statuses={}
     for start in range(0,len(selected),200):
         quoted=','.join("'"+key+"'" for key in selected[start:start+200])
         users=sf_query('SELECT Id, IsActive FROM User WHERE Id IN ('+quoted+')',token,instance,'reviewed PSE status')
-        active.update(user['Id'] for user in users if user.get('IsActive') is True)
+        statuses.update({user['Id']:user.get('IsActive') for user in users})
     for row in rows:
         if row['id'] in reviews:
-            review={**reviews[row['id']],'active':reviews[row['id']].get('userId') in active}
+            review={**reviews[row['id']],'active':statuses.get(reviews[row['id']].get('userId'))}
             row['teamEntries']=team_by_opp.get(row['id'],[])
             row['splitEntries']=splits_by_opp.get(row['id'],[])
             decorate(row,review)

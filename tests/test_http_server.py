@@ -121,3 +121,39 @@ class HTTPChecks(unittest.TestCase):
                 self.assertEqual(serve_local.allowed_missing_ids(), {self.opp})
                 command.assert_not_called()
             self.assertEqual(target.read_text(), original)
+
+    def test_set_inactive_requires_confirmation_and_never_writes_salesforce(self):
+        with patch.object(serve_local, 'sf_rest') as write:
+            status, _ = self.request('/api/review-inactive-pse', {'oppId': self.opp})
+            self.assertEqual(status, 400)
+            write.assert_not_called()
+
+    def test_set_inactive_uses_identified_user_and_saves_local_choice_only(self):
+        from test_local_updates import DetailedSalesforce
+        sf = DetailedSalesforce(active=False, team_role=None, split_role=None)
+        with patch.object(serve_local, 'refresh_session'), \
+             patch.object(serve_local, 'allowed_missing_ids', return_value={sf.opp_id}), \
+             patch.object(serve_local, 'query_current', side_effect=sf.query), \
+             patch.object(serve_local, 'update_local_snapshot') as save, \
+             patch.object(serve_local, 'audit'), \
+             patch.object(serve_local, 'sf_rest') as write:
+            status, body = self.request('/api/review-inactive-pse', {
+                'oppId': sf.opp_id, 'confirmed': True, 'userId': sf.other})
+            self.assertEqual(status, 200)
+            value = json.loads(body)
+            self.assertEqual(value['assignmentReview']['userId'], sf.rep)
+            self.assertTrue(value['updatePlan']['retainedInactive'])
+            self.assertEqual(value['updatePlan']['status'], 'ready')
+            save.assert_called_once()
+            write.assert_not_called()
+            self.assertEqual(sf.writes, [])
+
+    def test_coverage_role_review_requires_coverage_box_confirmation(self):
+        with patch.object(serve_local, 'refresh_session') as login, patch.object(serve_local, 'sf_rest') as write:
+            status, body = self.request('/api/review', {
+                'oppId': self.opp, 'userId': '005000000000003AAA', 'confirmed': True,
+                'rvpConfirmed': True, 'role': 'Partner Account Executive - Coverage'})
+            self.assertEqual(status, 400)
+            self.assertIn('Tick coverage box', json.loads(body)['error'])
+            login.assert_not_called()
+            write.assert_not_called()

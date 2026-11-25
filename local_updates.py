@@ -14,9 +14,18 @@ def plan(row, approval=None):
     blank = row.get('partnerRepNeedsPopulate')
     different = bool(not blank and rep and owner and rep[:15] != owner[:15])
     review = approval or row.get('assignmentReview') or {}
-    accepted = bool(review.get('confirmed') and review.get('baseOwnerId') == owner
-                    and rep in (review.get('baseRepId'), review.get('userId'))
-                    and review.get('role') in VALID_ROLES and review.get('active') is True)
+    fingerprint_matches = bool(review.get('confirmed') and review.get('baseOwnerId') == owner
+                               and rep in (review.get('baseRepId'), review.get('userId'))
+                               and review.get('role') in VALID_ROLES)
+    retained_inactive = bool(fingerprint_matches and review.get('mode') == 'retain_inactive'
+                             and review.get('active') is False and row.get('partnerRepActive') is False
+                             and review.get('userId') == rep and review.get('baseRepId') == rep)
+    coverage_review_unconfirmed = bool(fingerprint_matches and review.get('mode') != 'retain_inactive'
+                                       and review.get('role') == COVERAGE_ROLE
+                                       and review.get('coverageConfirmed') is not True)
+    active_review = bool(fingerprint_matches and review.get('mode') != 'retain_inactive'
+                         and review.get('active') is True and not coverage_review_unconfirmed)
+    accepted = retained_inactive or active_review
     target = review.get('userId') if accepted else rep
     name = review.get('name') if accepted else row.get('partnerRepName')
     role = review.get('role') if accepted else TEAM_ROLE
@@ -24,7 +33,7 @@ def plan(row, approval=None):
     splits = [item for item in row.get('splitEntries', []) if item.get('SplitOwnerId') == target]
     existing_split_role = splits[0].get('Opportunity_Team_Role__c') if len(splits) == 1 else None
     # Both Split roles are valid. Only an explicit reviewed role choice overrides one.
-    split_role = existing_split_role if existing_split_role in VALID_ROLES and not accepted else role
+    split_role = existing_split_role if existing_split_role in VALID_ROLES and not active_review else role
     changes = []
     if blank or target != rep:
         changes.append({'object': 'Opportunity', 'action': 'Populate PSE field' if blank else 'Set approved PSE',
@@ -52,17 +61,21 @@ def plan(row, approval=None):
     elif (len(splits) == 1 and existing_split_role == COVERAGE_ROLE
           and splits[0].get('Coverage__c') is not True):
         status, reason = 'blocked', ('Flag: Coverage role has Coverage unchecked. This read-only Salesforce formula needs verification in Salesforce.' if splits[0].get('Coverage__c') is False else 'Coverage status is not loaded. Click Refresh to read the Salesforce value.')
+    elif coverage_review_unconfirmed:
+        status, reason = ('rvp' if row.get('partnerRepActive') is False else 'review'), 'Tick coverage box and confirm the assignment before updating Salesforce.'
     elif status == 'complete' and not different:
         pass
     elif row.get('partnerRepActive') is False and not accepted:
-        status, reason = 'rvp', 'Inactive PSE: confirm an active covering PSE with the RVP.'
+        status, reason = 'rvp', 'Inactive PSE: choose Set covering PSE or Set inactive PSE.'
     elif row.get('partnerRepActive') is not True and not accepted:
         status, reason = 'blocked', 'The PSE activity status is unavailable.'
     elif different and not accepted:
         status, reason = 'review', 'Tagged PSE differs from Partner Owner. Confirm the assignment first.'
     if accepted and review.get('requiresRvp') and (not review.get('rvpConfirmed') or role != COVERAGE_ROLE):
         status, reason = 'rvp', 'RVP confirmation and the Coverage role are required.'
-    return {'status':status, 'reason':reason, 'changes':changes, 'targetRepId':target, 'targetName':name,
+    if retained_inactive and status in ('ready', 'complete'):
+        reason = 'Inactive PSE explicitly selected. Confirm Update to apply any pending changes using this user.'
+    return {'status':status, 'retainedInactive':retained_inactive, 'reason':reason, 'changes':changes, 'targetRepId':target, 'targetName':name,
             'targetRole':role, 'targetSplitRole':split_role, 'coverageRequired':split_role == COVERAGE_ROLE, 'teamCurrent':team, 'splitCurrent':splits,
             'fieldCurrent':None if blank else row.get('partnerRepName'), 'different':different}
 
@@ -74,7 +87,7 @@ def decorate(row, approval=None):
     return row
 
 
-def read_current(ids, query, approvals=None):
+def read_current(ids, query, approvals=None, *, keep_all_memberships=False):
     quoted=','.join("'"+key+"'" for key in ids)
     records=query('SELECT Id, Name, StageName, CloseDate, Type, Non_Commissionable__c, '+LOCAL_REP_FIELDS+' FROM Opportunity WHERE Id IN ('+quoted+')')
     team=query('SELECT Id, OpportunityId, UserId, User.Name, TeamMemberRole, OpportunityAccessLevel FROM OpportunityTeamMember WHERE OpportunityId IN ('+quoted+')')
@@ -84,8 +97,8 @@ def read_current(ids, query, approvals=None):
     selected={value['userId'] for value in approvals.values() if value.get('userId')}
     if selected:
         users=query('SELECT Id, Name, IsActive FROM User WHERE Id IN ('+','.join("'"+key+"'" for key in sorted(selected))+')')
-        active={user['Id'] for user in users if user.get('IsActive') is True}
-        approvals={key:{**value,'active':value.get('userId') in active} for key,value in approvals.items()}
+        statuses={user['Id']:user.get('IsActive') for user in users}
+        approvals={key:{**value,'active':statuses.get(value.get('userId'))} for key,value in approvals.items()}
     by_id={row['Id']:row for row in records}
     for key in ids:
         record=by_id.get(key)
@@ -99,8 +112,9 @@ def read_current(ids, query, approvals=None):
         row.update(teamEntries=members,splitEntries=entries)
         row.update(id=key,name=record.get('Name'),inScope=True)
         states[key]=decorate(row,approvals.get(key))
-        row['teamEntries']=row['updatePlan']['teamCurrent']
-        row['splitEntries']=row['updatePlan']['splitCurrent']
+        if not keep_all_memberships:
+            row['teamEntries']=row['updatePlan']['teamCurrent']
+            row['splitEntries']=row['updatePlan']['splitCurrent']
     return by_id,states
 
 
@@ -169,3 +183,17 @@ def execute_local(ids, allowed, query, rest, split_type, write=False, approvals=
                     result['errors'].append({'oppId':key,'message':current[key]['updatePlan'].get('reason') or 'Some required changes remain.'})
         result['states'].update(current)
     return result
+
+
+def retain_inactive_review(row):
+    """Explicit local choice to keep the already identified inactive user, never a replacement."""
+    if row.get('partnerRepActive') is not False or not (row.get('partnerRepId') or '').startswith('005'):
+        raise ValueError('The identified PSE is no longer an inactive Salesforce user. Refresh the card.')
+    if row.get('inScope') is False or row.get('updatePlan', {}).get('status') not in ('rvp', 'complete'):
+        raise ValueError(row.get('updatePlan', {}).get('reason') or 'This Opportunity needs individual review.')
+    team = row.get('teamEntries') or []
+    existing_role = team[0].get('TeamMemberRole') if len(team) == 1 else None
+    return {'mode': 'retain_inactive', 'userId': row['partnerRepId'], 'name': row['partnerRepName'],
+            'active': False, 'role': existing_role if existing_role in VALID_ROLES else TEAM_ROLE,
+            'confirmed': True, 'baseRepId': row['partnerRepId'], 'baseOwnerId': row['partnerOwnerId'],
+            'requiresRvp': False, 'rvpConfirmed': False}

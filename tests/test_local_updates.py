@@ -87,7 +87,7 @@ class LocalUpdateChecks(unittest.TestCase):
     def test_rvp_confirmed_coverage_uses_selected_active_user(self):
         sf=DetailedSalesforce(active=False)
         approval={'confirmed':True,'baseOwnerId':sf.rep,'baseRepId':sf.rep,'userId':sf.other,'name':'Covering',
-                  'active':True,'role':COVERAGE_ROLE,'requiresRvp':True,'rvpConfirmed':True}
+                  'active':True,'role':COVERAGE_ROLE,'coverageConfirmed':True,'requiresRvp':True,'rvpConfirmed':True}
         result=sf.local_run(write=True,approval=approval)
         self.assertEqual(result['succeeded'],1)
         self.assertEqual(sf.record['Partner_Sales_Rep__c'],sf.other)
@@ -101,7 +101,7 @@ class LocalUpdateChecks(unittest.TestCase):
     def test_deactivated_covering_user_and_stale_review_are_skipped(self):
         sf=DetailedSalesforce(active=False)
         approval={'confirmed':True,'baseOwnerId':sf.rep,'baseRepId':sf.rep,'userId':sf.other,'name':'Covering',
-                  'active':True,'role':COVERAGE_ROLE,'requiresRvp':True,'rvpConfirmed':True}
+                  'active':True,'role':COVERAGE_ROLE,'coverageConfirmed':True,'requiresRvp':True,'rvpConfirmed':True}
         sf.users[sf.other]=False
         self.assertEqual(sf.local_run(write=True,approval=approval)['idsToAdd'],[])
         self.assertEqual(sf.writes,[])
@@ -122,7 +122,7 @@ class LocalUpdateChecks(unittest.TestCase):
     def coverage_approval(self, sf):
         sf.record[PARTNER_REL]['OwnerId'] = sf.other
         return {'confirmed': True, 'baseOwnerId': sf.other, 'baseRepId': sf.rep,
-                'userId': sf.rep, 'name': 'Existing', 'active': True, 'role': COVERAGE_ROLE}
+                'userId': sf.rep, 'name': 'Existing', 'active': True, 'role': COVERAGE_ROLE, 'coverageConfirmed': True}
 
     def test_correcting_split_to_coverage_verifies_formula_without_writing_checkbox(self):
         sf = DetailedSalesforce(team_role=COVERAGE_ROLE)
@@ -178,4 +178,97 @@ class LocalUpdateChecks(unittest.TestCase):
         result = scope_snapshot({'config': {'scopeVersion': 6}, 'rows': [row]})
         self.assertEqual(result['rows'][0]['updatePlan']['status'], 'complete')
         self.assertEqual(result['summary']['needsUpdate'], 0)
+        self.assertEqual(sf.writes, [])
+
+    def test_inactive_choice_prepares_only_until_update_is_requested(self):
+        from local_updates import retain_inactive_review
+        sf = DetailedSalesforce(active=False, team_role=None, split_role=None)
+        _, states = read_current([sf.opp_id], sf.query)
+        review = retain_inactive_review(states[sf.opp_id])
+        preview = sf.local_run(approval=review)
+        self.assertEqual(sf.writes, [])
+        self.assertEqual(preview['states'][sf.opp_id]['updatePlan']['status'], 'ready')
+        self.assertTrue(preview['states'][sf.opp_id]['updatePlan']['retainedInactive'])
+        result = sf.local_run(write=True, approval=review)
+        self.assertEqual(result['succeeded'], 1)
+        self.assertEqual(sf.record['Partner_Sales_Rep__c'], sf.rep)
+        self.assertEqual(sf.members[0]['UserId'], sf.rep)
+        self.assertEqual(sf.entries[0]['SplitOwnerId'], sf.rep)
+        self.assertTrue(all('Coverage__c' not in values for _, values in sf.writes))
+
+    def test_blank_pse_can_explicitly_use_inactive_partner_owner(self):
+        from local_updates import retain_inactive_review
+        sf = DetailedSalesforce(blank=True, active=False, team_role=None, split_role=None)
+        _, states = read_current([sf.opp_id], sf.query)
+        review = retain_inactive_review(states[sf.opp_id])
+        self.assertEqual(review['userId'], sf.record[PARTNER_REL]['OwnerId'])
+        self.assertEqual(sf.writes, [])
+        result = sf.local_run(write=True, approval=review)
+        self.assertEqual(result['succeeded'], 1)
+        self.assertEqual(sf.record['Partner_Sales_Rep__c'], sf.rep)
+        self.assertEqual([kind for kind, _ in sf.writes], ['Opportunity', 'OpportunityTeamMember', 'OpportunitySplit'])
+
+    def test_inactive_choice_is_invalid_after_assignment_change_or_lost_user_access(self):
+        from local_updates import retain_inactive_review
+        for change in ('owner', 'rep', 'access'):
+            sf = DetailedSalesforce(active=False, team_role=None, split_role=None)
+            _, states = read_current([sf.opp_id], sf.query)
+            review = retain_inactive_review(states[sf.opp_id])
+            if change == 'owner':
+                sf.record[PARTNER_REL]['OwnerId'] = sf.other
+            elif change == 'rep':
+                sf.record['Partner_Sales_Rep__c'] = sf.other
+                sf.record['Partner_Sales_Rep__r'] = {'Name': 'Other', 'IsActive': True}
+            else:
+                sf.users.pop(sf.rep)
+            result = sf.local_run(write=True, approval=review)
+            self.assertNotEqual(result['states'][sf.opp_id]['updatePlan']['status'], 'ready')
+            self.assertEqual(sf.writes, [])
+
+    def test_coverage_review_requires_user_ticked_confirmation(self):
+        sf = DetailedSalesforce(active=False, team_role=None, split_role=None)
+        review = {'confirmed': True, 'baseOwnerId': sf.rep, 'baseRepId': sf.rep,
+                  'userId': sf.other, 'name': 'Covering', 'active': True,
+                  'role': COVERAGE_ROLE, 'requiresRvp': True, 'rvpConfirmed': True}
+        result = sf.local_run(write=True, approval=review)
+        self.assertEqual(result['states'][sf.opp_id]['updatePlan']['status'], 'rvp')
+        self.assertIn('Tick coverage box', result['states'][sf.opp_id]['updatePlan']['reason'])
+        self.assertEqual(sf.writes, [])
+
+    def test_retaining_inactive_pse_keeps_valid_existing_roles_as_is(self):
+        from local_updates import retain_inactive_review
+        sf = DetailedSalesforce(active=False, team_role=COVERAGE_ROLE, split_role=COVERAGE_ROLE)
+        _, states = read_current([sf.opp_id], sf.query)
+        review = retain_inactive_review(states[sf.opp_id])
+        result = sf.local_run(write=True, approval=review)
+        self.assertEqual(result['states'][sf.opp_id]['updatePlan']['status'], 'complete')
+        self.assertEqual(sf.writes, [])
+        self.assertEqual(sf.members[0]['TeamMemberRole'], COVERAGE_ROLE)
+        self.assertEqual(sf.entries[0]['Opportunity_Team_Role__c'], COVERAGE_ROLE)
+
+    def test_salesforce_rejection_for_inactive_member_stops_split_addition(self):
+        from local_updates import retain_inactive_review
+        sf = DetailedSalesforce(active=False, team_role=None, split_role=None, fail_team=True)
+        _, states = read_current([sf.opp_id], sf.query)
+        review = retain_inactive_review(states[sf.opp_id])
+        result = sf.local_run(write=True, approval=review)
+        self.assertEqual(result['failed'], 1)
+        self.assertEqual([kind for kind, _ in sf.writes], ['OpportunityTeamMember'])
+        self.assertEqual(sf.entries, [])
+
+    def test_new_review_reuses_covering_users_existing_memberships(self):
+        from local_updates import decorate
+        sf = DetailedSalesforce(active=False, team_role=None, split_role=None)
+        sf.members = [{'Id': '00q000000000003AAA', 'OpportunityId': sf.opp_id,
+                       'UserId': sf.other, 'TeamMemberRole': COVERAGE_ROLE, 'OpportunityAccessLevel': 'Read'}]
+        sf.entries = [{'Id': '049000000000003AAA', 'OpportunityId': sf.opp_id,
+                       'SplitOwnerId': sf.other, 'Opportunity_Team_Role__c': COVERAGE_ROLE,
+                       'Coverage__c': True, 'SplitPercentage': 37}]
+        _, states = read_current([sf.opp_id], sf.query, keep_all_memberships=True)
+        review = {'confirmed': True, 'baseOwnerId': sf.rep, 'baseRepId': sf.rep,
+                  'userId': sf.other, 'name': 'Covering', 'active': True,
+                  'role': COVERAGE_ROLE, 'coverageConfirmed': True,
+                  'requiresRvp': True, 'rvpConfirmed': True}
+        row = decorate(states[sf.opp_id], review)
+        self.assertEqual([change['object'] for change in row['updatePlan']['changes']], ['Opportunity'])
         self.assertEqual(sf.writes, [])

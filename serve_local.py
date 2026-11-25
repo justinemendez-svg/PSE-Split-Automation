@@ -22,7 +22,7 @@ from pathlib import Path
 
 from workflow import CLOSED_STAGE, EXCLUDED_PARTNER_TYPE, is_complete
 from local_scope import LOCAL_SCOPE_VERSION, unique_opportunities, local_summary, in_fiscal_window, scope_snapshot
-from local_updates import execute_local, read_current, decorate, VALID_ROLES, COVERAGE_ROLE
+from local_updates import execute_local, read_current, decorate, VALID_ROLES, COVERAGE_ROLE, retain_inactive_review
 
 from refresh import (
     API_VERSION, SPLIT_PERCENTAGE,
@@ -288,16 +288,36 @@ class Handler(BaseHTTPRequestHandler):
                 users=query_current("SELECT Id, Name, IsActive FROM User WHERE IsActive = true AND Name LIKE '%"+term+"%' ORDER BY Name LIMIT 30")
                 return self.send_json(200,{'users':[{'id':user['Id'],'name':user['Name']} for user in users]})
             except (RuntimeError,OSError,ValueError) as error:return self.send_json(502,{'error':str(error)})
+        if path == '/api/review-inactive-pse':
+            try:
+                ids=valid_ids([payload.get('oppId')])
+                if not ids or payload.get('confirmed') is not True:
+                    raise ValueError('Confirm that this Opportunity must use its identified inactive PSE.')
+                with WRITE_LOCK,REFRESH_LOCK:
+                    refresh_session()
+                    if ids[0] not in allowed_missing_ids():
+                        raise ValueError('Opportunity is outside the current worklist.')
+                    _,states=read_current(ids,query_current)
+                    row=states[ids[0]]
+                    review=retain_inactive_review(row)
+                    decorate(row,review)
+                    update_local_snapshot({ids[0]:row})
+                    audit({'type':'local_retain_inactive_pse_review','oppId':ids[0],'review':review})
+                return self.send_json(200,row)
+            except ValueError as error:return self.send_json(400,{'error':str(error)})
+            except (RuntimeError,OSError) as error:return self.send_json(502,{'error':str(error)})
         if path == '/api/review':
             try:
                 ids=valid_ids([payload.get('oppId')]);user_id=str(payload.get('userId') or '')
                 role=payload.get('role')
                 if not ids or not re.fullmatch(r'005[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?',user_id) or role not in VALID_ROLES or payload.get('confirmed') is not True:
                     raise ValueError('Select an active PSE, choose the role and confirm the assignment.')
+                if role==COVERAGE_ROLE and payload.get('coverageConfirmed') is not True:
+                    raise ValueError('Tick coverage box before confirming a Coverage role assignment.')
                 with WRITE_LOCK,REFRESH_LOCK:
                     refresh_session()
                     if ids[0] not in allowed_missing_ids():raise ValueError('Opportunity is outside the current worklist.')
-                    _,states=read_current(ids,query_current)
+                    _,states=read_current(ids,query_current,keep_all_memberships=True)
                     row=states[ids[0]]
                     if row.get('inScope') is False:raise ValueError('Opportunity no longer meets the current scope.')
                     requires_rvp=row.get('partnerRepActive') is False
@@ -309,7 +329,8 @@ class Handler(BaseHTTPRequestHandler):
                     if len(users)!=1:raise ValueError('The selected PSE is not an accessible active Salesforce user.')
                     approval={'userId':user_id,'name':users[0]['Name'],'active':True,'role':role,'confirmed':True,
                               'baseRepId':row.get('partnerRepId'),'baseOwnerId':row.get('partnerOwnerId'),
-                              'requiresRvp':requires_rvp,'rvpConfirmed':payload.get('rvpConfirmed') is True}
+                              'requiresRvp':requires_rvp,'rvpConfirmed':payload.get('rvpConfirmed') is True,
+                              'coverageConfirmed':payload.get('coverageConfirmed') is True}
                     decorate(row,approval);update_local_snapshot({ids[0]:row})
                     audit({'type':'local_assignment_review','oppId':ids[0],'review':approval})
                     return self.send_json(200,row)
