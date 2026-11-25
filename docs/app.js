@@ -279,7 +279,8 @@ function opportunityCard(row) {
   const correct = (object) => (ready || status==='complete') && !p.changes?.some(item=>item.object===object);
   const targetName = review ? 'Awaiting confirmed PSE' : target;
   const requiredTeam = esc(targetName) + '<br>' + esc(role) + '<br><span class="sub">' + esc('Opportunity Access: ' + opportunityAccessLabel(team[0]?.OpportunityAccessLevel || 'Read')) + '</span>';
-  const requiredSplit = esc(targetName) + '<br>' + esc(role) + '<br><span class="sub">' + esc(splits.length ? 'Keep existing type and percentage' : 'Overlay · 100.00%') + '</span><br><label><input type="checkbox" disabled' + (role === 'Partner Account Executive - Coverage' ? ' checked' : '') + '> Coverage</label><div class="sub">Set automatically by Salesforce from the Split role</div>';
+  const splitRole = p.targetSplitRole || (['Partner Account Executive','Partner Account Executive - Coverage'].includes(splits[0]?.Opportunity_Team_Role__c) ? splits[0].Opportunity_Team_Role__c : role);
+  const requiredSplit = esc(targetName) + '<br>' + esc(splitRole) + '<br><span class="sub">' + esc(splits.length ? 'Keep existing type and percentage' : 'Overlay · 100.00%') + '</span><br><label><input type="checkbox" disabled' + (splitRole === 'Partner Account Executive - Coverage' ? ' checked' : '') + '> Coverage</label><div class="sub">Set automatically by Salesforce from the Split role</div>';
   const steps = planStep('1 · Partner Sales Rep field', p.fieldCurrent || (row.partnerRepNeedsPopulate ? 'Blank' : row.partnerRepName || '—'), esc(targetName), action('Opportunity'), correct('Opportunity')) +
     planStep('2 · Check Opportunity Team',currentTeam,requiredTeam,action('OpportunityTeamMember'),correct('OpportunityTeamMember')) +
     planStep('3 · Check Opportunity Splits',currentSplit,requiredSplit,action('OpportunitySplit'),correct('OpportunitySplit'));

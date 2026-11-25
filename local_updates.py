@@ -22,6 +22,9 @@ def plan(row, approval=None):
     role = review.get('role') if accepted else TEAM_ROLE
     team = [item for item in row.get('teamEntries', []) if item.get('UserId') == target]
     splits = [item for item in row.get('splitEntries', []) if item.get('SplitOwnerId') == target]
+    existing_split_role = splits[0].get('Opportunity_Team_Role__c') if len(splits) == 1 else None
+    # Both Split roles are valid. Only an explicit reviewed role choice overrides one.
+    split_role = existing_split_role if existing_split_role in VALID_ROLES and not accepted else role
     changes = []
     if blank or target != rep:
         changes.append({'object': 'Opportunity', 'action': 'Populate PSE field' if blank else 'Set approved PSE',
@@ -31,9 +34,9 @@ def plan(row, approval=None):
     elif len(team) == 1 and team[0].get('TeamMemberRole') != role:
         changes.append({'object':'OpportunityTeamMember','id':team[0].get('Id'),'action':'Correct Team role','values':{'TeamMemberRole':role}})
     if not splits:
-        changes.append({'object':'OpportunitySplit','action':'Add Overlay Split','values':{'SplitOwnerId':target,'Opportunity_Team_Role__c':role,'SplitPercentage':100}})
-    elif len(splits) == 1 and splits[0].get('Opportunity_Team_Role__c') != role:
-        changes.append({'object':'OpportunitySplit','id':splits[0].get('Id'),'action':'Correct Split role','values':{'Opportunity_Team_Role__c':role}})
+        changes.append({'object':'OpportunitySplit','action':'Add Overlay Split','values':{'SplitOwnerId':target,'Opportunity_Team_Role__c':split_role,'SplitPercentage':100}})
+    elif len(splits) == 1 and existing_split_role != split_role:
+        changes.append({'object':'OpportunitySplit','id':splits[0].get('Id'),'action':'Apply reviewed Split role' if existing_split_role in VALID_ROLES else 'Correct Split role','values':{'Opportunity_Team_Role__c':split_role}})
     reason = ''
     status = 'ready' if changes else 'complete'
     if row.get('inScope') is False:
@@ -44,10 +47,10 @@ def plan(row, approval=None):
         status, reason = 'blocked', 'Click Refresh to load actual Team and Split roles.'
     elif len(team) > 1 or len(splits) > 1:
         status, reason = 'blocked', 'Multiple Team or Split entries need individual review in Salesforce.'
-    elif any(item.get('id') is None and item['action'].startswith('Correct') for item in changes):
+    elif any(item.get('id') is None and item['action'] in ('Correct Team role', 'Correct Split role', 'Apply reviewed Split role') for item in changes):
         status, reason = 'blocked', 'Refresh to load the existing entry IDs before correcting roles.'
-    elif (role == COVERAGE_ROLE and len(splits) == 1
-          and splits[0].get('Opportunity_Team_Role__c') == role
+    elif (split_role == COVERAGE_ROLE and len(splits) == 1
+          and existing_split_role == split_role
           and splits[0].get('Coverage__c') is not True):
         status, reason = 'blocked', 'Coverage is a read-only Salesforce formula. Click Refresh to verify it is checked for the Coverage Split role.'
     elif status == 'complete' and not different:
@@ -61,7 +64,7 @@ def plan(row, approval=None):
     if accepted and review.get('requiresRvp') and (not review.get('rvpConfirmed') or role != COVERAGE_ROLE):
         status, reason = 'rvp', 'RVP confirmation and the Coverage role are required.'
     return {'status':status, 'reason':reason, 'changes':changes, 'targetRepId':target, 'targetName':name,
-            'targetRole':role, 'coverageRequired':role == COVERAGE_ROLE, 'teamCurrent':team, 'splitCurrent':splits,
+            'targetRole':role, 'targetSplitRole':split_role, 'coverageRequired':split_role == COVERAGE_ROLE, 'teamCurrent':team, 'splitCurrent':splits,
             'fieldCurrent':None if blank else row.get('partnerRepName'), 'different':different}
 
 

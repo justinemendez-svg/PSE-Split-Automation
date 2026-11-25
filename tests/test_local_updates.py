@@ -149,3 +149,33 @@ class LocalUpdateChecks(unittest.TestCase):
         result = sf.local_run(write=True, approval=self.coverage_approval(sf))
         self.assertEqual(result['states'][sf.opp_id]['updatePlan']['status'], 'complete')
         self.assertEqual(sf.writes, [])
+
+    def test_existing_coverage_split_is_valid_without_a_review(self):
+        for active in (True, False):
+            sf = DetailedSalesforce(split_role=COVERAGE_ROLE, active=active)
+            result = sf.local_run(write=True)
+            state = result['states'][sf.opp_id]
+            self.assertEqual(state['updatePlan']['status'], 'complete')
+            self.assertEqual(state['updatePlan']['targetSplitRole'], COVERAGE_ROLE)
+            self.assertTrue(state['updatePlan']['coverageRequired'])
+            self.assertEqual(sf.writes, [])
+
+    def test_missing_team_does_not_rewrite_valid_coverage_split(self):
+        sf = DetailedSalesforce(team_role=None, split_role=COVERAGE_ROLE)
+        result = sf.local_run(write=True)
+        self.assertEqual(result['succeeded'], 1)
+        self.assertEqual([kind for kind, _ in sf.writes], ['OpportunityTeamMember'])
+        self.assertEqual(sf.entries[0]['Opportunity_Team_Role__c'], COVERAGE_ROLE)
+        self.assertTrue(sf.entries[0]['Coverage__c'])
+        self.assertEqual(sf.entries[0]['SplitPercentage'], 37)
+
+    def test_cached_wrong_plan_is_recomputed_without_salesforce_changes(self):
+        from local_scope import scope_snapshot
+        from refresh import classify
+        sf = DetailedSalesforce(split_role=COVERAGE_ROLE)
+        row = classify(sf.record, sf.members, sf.entries)
+        row['updatePlan'] = {'status': 'ready', 'changes': [{'action': 'Correct Split role'}]}
+        result = scope_snapshot({'config': {'scopeVersion': 6}, 'rows': [row]})
+        self.assertEqual(result['rows'][0]['updatePlan']['status'], 'complete')
+        self.assertEqual(result['summary']['needsUpdate'], 0)
+        self.assertEqual(sf.writes, [])

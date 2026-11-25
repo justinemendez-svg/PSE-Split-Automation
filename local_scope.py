@@ -35,6 +35,10 @@ def scope_snapshot(data, as_of=None):
     start, end = fiscal_window(as_of)
     rows = [row for row in unique_opportunities(data.get('rows', []))
             if in_fiscal_window(row.get('closeDate'), as_of)]
+    # Saved plans can predate a rule correction; recompute from saved membership details.
+    # This does not fetch Salesforce or apply writes.
+    from local_updates import decorate
+    rows = [decorate(dict(row)) if row.get('membershipDetailsLoaded') else row for row in rows]
     return {**data, 'rows': rows, 'summary': local_summary(rows),
             'config': {**data.get('config', {}), 'fiscalWindow': {
                 'start': start.isoformat(), 'endExclusive': end.isoformat(),
