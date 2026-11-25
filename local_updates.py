@@ -49,10 +49,9 @@ def plan(row, approval=None):
         status, reason = 'blocked', 'Multiple Team or Split entries need individual review in Salesforce.'
     elif any(item.get('id') is None and item['action'] in ('Correct Team role', 'Correct Split role', 'Apply reviewed Split role') for item in changes):
         status, reason = 'blocked', 'Refresh to load the existing entry IDs before correcting roles.'
-    elif (split_role == COVERAGE_ROLE and len(splits) == 1
-          and existing_split_role == split_role
+    elif (len(splits) == 1 and existing_split_role == COVERAGE_ROLE
           and splits[0].get('Coverage__c') is not True):
-        status, reason = 'blocked', 'Coverage is a read-only Salesforce formula. Click Refresh to verify it is checked for the Coverage Split role.'
+        status, reason = 'blocked', ('Flag: Coverage role has Coverage unchecked. This read-only Salesforce formula needs verification in Salesforce.' if splits[0].get('Coverage__c') is False else 'Coverage status is not loaded. Click Refresh to read the Salesforce value.')
     elif status == 'complete' and not different:
         pass
     elif row.get('partnerRepActive') is False and not accepted:

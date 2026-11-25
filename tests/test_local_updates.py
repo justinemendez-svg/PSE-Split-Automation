@@ -141,7 +141,7 @@ class LocalUpdateChecks(unittest.TestCase):
             sf.entries[0]['Coverage__c'] = value
             result = sf.local_run(write=True, approval=self.coverage_approval(sf))
             self.assertEqual(result['states'][sf.opp_id]['updatePlan']['status'], 'blocked')
-            self.assertIn('read-only', result['states'][sf.opp_id]['updatePlan']['reason'])
+            self.assertIn('read-only' if value is False else 'not loaded', result['states'][sf.opp_id]['updatePlan']['reason'])
             self.assertEqual(sf.writes, [])
 
     def test_existing_correct_coverage_split_needs_no_write(self):
