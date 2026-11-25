@@ -79,11 +79,15 @@ def sync_app_copy() -> None:
 
 
 def write_agent() -> None:
-    python = shutil.which("python3") or sys.executable
+    python = sys.executable
     sf = shutil.which("sf")
     if not sf:
         raise SystemExit("Salesforce CLI (`sf`) is not on PATH. Install it and log in before starting the dashboard.")
-    auth = subprocess.run([sf, "org", "display", "--json", "--target-org", "prod"], capture_output=True, text=True)
+    try:
+        auth = subprocess.run([sf, "org", "display", "--json", "--target-org", "prod"],
+                              capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        raise SystemExit("Could not read your Salesforce CLI session. Run `sf org login web --alias prod --instance-url https://zendesk.my.salesforce.com`, then retry.") from None
     try:
         result = json.loads(auth.stdout).get("result", {})
     except (json.JSONDecodeError, AttributeError):
@@ -115,10 +119,9 @@ def main() -> None:
     if sys.platform != "darwin":
         raise SystemExit("The automatic background service requires macOS. On other systems, run `python3 serve_local.py --org prod` in a terminal.")
 
-    sync_app_copy()
-    # Validate Salesforce access and write the replacement definition before
-    # stopping a working copy of the current service.
+    # Validate authentication before replacing managed app files or stopping a working service.
     write_agent()
+    sync_app_copy()
     launchctl("bootout", SERVICE, check=False)
 
     if dashboard_ready():

@@ -12,11 +12,11 @@ Use MY OWN Salesforce account. If login is needed, run:
 sf org login web --alias prod --instance-url https://zendesk.my.salesforce.com
 Guide me through Salesforce/Okta authentication. Never print or share tokens.
 
-On macOS, run python3 install_local_service.py, then open http://localhost:8773/ in Chrome. On another OS, start the documented local server and explain that the terminal must stay open.
+From the cloned repository folder, use a supported Python interpreter. On macOS, run python3 install_local_service.py with that interpreter, then open http://localhost:8773/ in Chrome or my default browser. On another OS, start the documented local server and explain that the terminal must stay open.
 
-Keep the complete current dashboard, layout, filters, Process Flow, manual Refresh and confirmed individual/bulk Salesforce update functionality. Do not deploy the older AppFoundry build or schedule automatic refreshes.
+Keep the complete current dashboard, layout, category boxes, multi-select filters, Process Flow, assignment review, manual Refresh and confirmed individual/bulk Salesforce update functionality. Keep the rolling data scope: current and previous Zendesk fiscal quarters by Opportunity Close Date (fiscal year February–January). Do not deploy the older AppFoundry build or schedule automatic refreshes.
 
-Verify the app opens correctly. Show me Process Flow and explain that Refresh downloads current SFDC data only when clicked. Let me click Refresh to load my first data. Do not update any Salesforce records during setup, and never commit data or credentials.
+Verify the local health endpoint and that a first-time installation shows Click Refresh without needing copied data. If localhost does not resolve, try http://127.0.0.1:8773/. Show me Process Flow and explain that Refresh downloads current SFDC data only when clicked. Let me click Refresh to load my first data. Do not update any Salesforce records during setup, and never commit data or credentials. Do not copy Justine’s snapshot or Salesforce session. If my Salesforce permissions block access, explain exactly what access is missing.
 
 If you have questions, contact Justine Mendez / justine.mendez@zendesk.com.
 ```

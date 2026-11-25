@@ -17,7 +17,7 @@ sf org login web --alias prod --instance-url https://zendesk.my.salesforce.com
 python3 install_local_service.py
 ```
 
-On macOS, open http://localhost:8773/ and click **Refresh** to load your first snapshot. The service starts at login and restarts if it stops; this does not schedule data refreshes. Double-click `serve.command` to reinstall/start the app and open Chrome. After pulling later updates, rerun the installer and reload the browser.
+On macOS, open http://localhost:8773/ and click **Refresh** to load your first snapshot. The service starts at login and restarts if it stops; this does not schedule data refreshes. Double-click `serve.command` to reinstall/start the app and open Chrome (or your default browser if Chrome is unavailable). After pulling later updates, rerun the installer and reload the browser.
 
 On Windows/Linux, run `python3 serve_local.py --org prod --port 8773` and keep that terminal open. The automatic background-service installer is macOS-only. Use `python` instead of `python3` if that is your Python 3 command.
 
@@ -84,3 +84,11 @@ git diff --check
 These checks use synthetic records and mocked Salesforce operations. They do not update Salesforce.
 
 Questions: **Justine Mendez — justine.mendez@zendesk.com**.
+
+## First-time setup and access
+
+A new clone intentionally has no saved Salesforce data. It should open with **No Salesforce snapshot yet. Click Refresh to load data.** Click Refresh yourself to create your own snapshot. The same app and rules are installed for everyone; visible Opportunities and allowed changes depend on each person’s Salesforce access.
+
+Your own Zendesk Salesforce account needs API access and read access to the queried Opportunity, Partner Account, User/Profile, Opportunity Team and Opportunity Split fields. Salesforce updates also require the appropriate create/edit access and must pass your org’s validation rules. Codex should explain permission errors; it cannot grant Salesforce access.
+
+If `localhost` does not resolve on your computer, use http://127.0.0.1:8773/. If port 8773 is already occupied, identify the existing app before stopping anything; a foreground server can use another `--port`. If authentication expires, log in again with the documented Salesforce CLI command and restart the service. On macOS, the installer uses the same Python interpreter that ran it, validates your CLI session before replacing app files, and preserves your saved data during upgrades.

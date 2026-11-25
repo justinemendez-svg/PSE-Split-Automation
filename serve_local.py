@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import datetime as dt
 import json
 import mimetypes
@@ -360,6 +361,20 @@ class IPv6ThreadingHTTPServer(ThreadingHTTPServer):
         super().server_bind()
 
 
+def create_servers(port):
+    """Always bind IPv4; allow hosts where IPv6 loopback is unavailable."""
+    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    try:
+        ipv6_server = IPv6ThreadingHTTPServer(("::1", port), Handler)
+    except OSError as error:
+        unavailable = {errno.EAFNOSUPPORT, errno.EPROTONOSUPPORT, errno.EADDRNOTAVAIL, errno.ENOPROTOOPT}
+        if error.errno not in unavailable:
+            server.server_close()
+            raise
+        ipv6_server = None
+    return server, ipv6_server
+
+
 def main():
     parser = argparse.ArgumentParser(description="Serve PSE Split Automation locally.")
     parser.add_argument("--org", help="Salesforce CLI org alias or username")
@@ -372,20 +387,16 @@ def main():
         print(error, file=sys.stderr)
         sys.exit(1)
     SESSION["token"], SESSION["instance"] = token, instance
-    servers = []
     try:
-        server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
-        servers.append(server)
-        ipv6_server = IPv6ThreadingHTTPServer(("::1", args.port), Handler)
-        servers.append(ipv6_server)
-    except OSError:
-        for active_server in servers:
-            active_server.server_close()
-        raise
-    threading.Thread(target=ipv6_server.serve_forever, daemon=True).start()
+        server, ipv6_server = create_servers(args.port)
+    except OSError as error:
+        sys.exit(f"Could not start the dashboard on port {args.port}: {error}. Stop the conflicting server or choose another --port.")
+    servers = [server] + ([ipv6_server] if ipv6_server else [])
+    if ipv6_server:
+        threading.Thread(target=ipv6_server.serve_forever, daemon=True).start()
     print("PSE Split Automation — Salesforce Team & Split Update")
     print(f"Open http://localhost:{args.port}/")
-    print("Listening on IPv4 and IPv6 loopback only.")
+    print("Listening on loopback only. If localhost does not resolve, open " + f"http://127.0.0.1:{args.port}/")
     print(f"Confirmed updates preserve the PSE or fill a blank PSE from the Partner Owner, then add missing Team and Split entries for {CLOSED_STAGE} Opportunities.")
     print("Every write is rechecked against Salesforce and logged locally. Press Ctrl-C to stop.")
     try:
@@ -393,7 +404,8 @@ def main():
     except KeyboardInterrupt:
         print("\nStopped.")
     finally:
-        ipv6_server.shutdown()
+        if ipv6_server:
+            ipv6_server.shutdown()
         for active_server in servers:
             active_server.server_close()
 

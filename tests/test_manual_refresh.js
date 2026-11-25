@@ -3,7 +3,7 @@ const fs = require('fs');
 const vm = require('vm');
 const assert = require('assert');
 const source = fs.readFileSync('docs/app.js', 'utf8').replace(/load\(\);\s*$/, '');
-async function checkLoad(ok, config) {
+async function checkLoad(ok, config, error) {
   const calls = [];
   const elements = new Map();
   const context = { document: { querySelectorAll: () => [], getElementById: (id) => {
@@ -11,7 +11,7 @@ async function checkLoad(ok, config) {
     return elements.get(id);
   } }, fetch: async (path, options) => {
     calls.push({ path, options });
-    return { ok, status: ok ? 200 : 404, json: async () => ({ generatedAt: '2000-01-01T00:00:00Z', config, rows: [] }) };
+    return { ok, status: ok ? 200 : 404, json: async () => ({ generatedAt: '2000-01-01T00:00:00Z', config, rows: [], error }) };
   } };
   vm.createContext(context);
   vm.runInContext(source, context);
@@ -26,6 +26,7 @@ async function checkLoad(ok, config) {
   await checkLoad(true, { scopeVersion: 6 });
   await checkLoad(true, { scopeVersion: 1 });
   await checkLoad(false, {});
+  await checkLoad(false, {}, 'not found');
   const failureElements = new Map();
   const failureContext = { document: { getElementById: (id) => {
     if (!failureElements.has(id)) failureElements.set(id, {});

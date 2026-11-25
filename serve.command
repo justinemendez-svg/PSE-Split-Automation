@@ -11,5 +11,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 python3 "$HERE/install_local_service.py"
-open -a "Google Chrome" "$URL"
+if ! open -a "Google Chrome" "$URL" 2>/dev/null; then
+  open "$URL"
+fi
 echo "Opened PSE Split Automation at $URL"

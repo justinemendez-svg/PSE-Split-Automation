@@ -110,7 +110,7 @@ async function load() {
       const details = await response.json().catch(() => ({}));
       await detectApi();
       const status = $("status");
-      if (details.error) {
+      if (details.error && !(response.status === 404 && state.writeApi.refreshEnabled)) {
         status.className = "status err";
         status.textContent = "Dashboard data could not be loaded: " + details.error + " (HTTP " + response.status + "). Check the server configuration, then reload.";
         return;
