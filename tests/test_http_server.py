@@ -20,7 +20,7 @@ class HTTPChecks(unittest.TestCase):
         cls.temp=tempfile.TemporaryDirectory(prefix='pse-http-checks-')
         cls.root=Path(cls.temp.name)
         cls.opp='006000000000001AAA'
-        cls.snapshot={'config':{'scopeVersion':5},'summary':{'total':1},'rows':[{'id':cls.opp,'name':'Offline example','stage':'08 - Closed','type':'Renewal','nonCommissionable':False,'partnerType':None,'partnerId':'001000000000001AAA','partnerRepOnTeam':False,'partnerRepOnSplit':False}]}
+        cls.snapshot={'config':{'scopeVersion':6},'summary':{'total':1},'rows':[{'id':cls.opp,'name':'Offline example','stage':'08 - Closed','type':'Renewal','nonCommissionable':False,'partnerType':None,'partnerId':'001000000000001AAA','partnerRepOnTeam':False,'partnerRepOnSplit':False}]}
         (cls.root/'index.html').write_text('<h1>Offline dashboard</h1>')
         (cls.root/'pse-data.json').write_text(json.dumps(cls.snapshot))
         cls.paths=patch.multiple(serve_local,DOCS=cls.root,DATA=cls.root/'pse-data.json')
@@ -53,6 +53,12 @@ class HTTPChecks(unittest.TestCase):
         with patch.object(serve_local.subprocess,'run') as command:
             self.assertEqual(self.request('/api/refresh',{'force':False})[0],400)
             command.assert_not_called()
+
+    def test_review_requires_explicit_assignment_confirmation(self):
+        for payload in ({},{'oppId':self.opp,'userId':'005000000000001AAA','role':'Partner Account Executive'}):
+            status,_=self.request('/api/review',payload)
+            self.assertEqual(status,400)
+        self.assertEqual(self.request('/api/users',{'search':'a'})[0],400)
 
     def test_manual_refresh_runs_once(self):
         from types import SimpleNamespace

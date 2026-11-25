@@ -66,6 +66,15 @@ def sync_app_copy() -> None:
             if name in skipped or name.endswith((".pyc", ".log")) or name.startswith(".env")
         }
 
+    # Retire only known obsolete managed code, never snapshots, audit or logs.
+    for relative in ('docs/local-index.html', 'docs/local-app.js', 'LOCAL_PREVIEW.md',
+                     'pse-split-appfoundry', 'tests/test_workflow.py', 'tests/test_hosted.py',
+                     'tests/test_reliability.py', 'tests/test_categories.js'):
+        target = APP_ROOT / relative
+        if target.is_dir():
+            shutil.rmtree(target)
+        elif target.exists():
+            target.unlink()
     shutil.copytree(ROOT, APP_ROOT, dirs_exist_ok=True, ignore=ignored)
 
 

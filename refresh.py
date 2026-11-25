@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Refresh the Partner Sales Rep team and Overlay split dashboard.
 
-Reads commissionable 08 - Closed Renewal, New Business, and Expansion Opportunities with
-a tagged Partner; resolves the existing PSE or Partner Owner and checks
-the PSE field, Opportunity Team and Opportunity Splits. This refresh is read-only.
+Reads the local closed Partner Opportunity scope, including the added review fields.
+The optional --export-dir writes the same current data profile to another folder.
+Resolves the existing PSE or Partner Owner and checks Team and Split membership.
+This refresh is read-only.
 
 Run with: python3 refresh.py --org prod
 """
@@ -15,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import datetime as dt
 import json
 import os
+import re
 from pathlib import Path
 import tempfile
 import subprocess
@@ -30,8 +32,8 @@ API_VERSION = "v60.0"
 LIGHTNING_URL = "https://zendesk.lightning.force.com"
 SPLIT_TYPE_LABEL = "Overlay"
 SPLIT_PERCENTAGE = 100
-OPPORTUNITY_TYPES = ("Renewal", "New Business", "Expansion")
-from workflow import CLOSED_STAGE, PARTNER_FIELD, PARTNER_REL, REP_FIELDS, SCOPE_VERSION, EXCLUDED_PARTNER_TYPE, rep_state, summary
+from workflow import CLOSED_STAGE, PARTNER_FIELD, EXCLUDED_PARTNER_TYPE
+from local_scope import LOCAL_SCOPE_VERSION, LOCAL_REP_FIELDS, local_rep_state, unique_opportunities, local_summary
 
 
 def sf_session(org: str | None) -> tuple[str, str]:
@@ -106,9 +108,8 @@ def resolve_split_type_id(token: str, instance: str) -> str:
 
 
 def classify(record: dict, team: list[dict], splits: list[dict]) -> dict:
-    value = rep_state(record, {member.get("UserId") for member in team},
-                      {split.get("SplitOwnerId") for split in splits})
-    return {
+    value = local_rep_state(record, team, splits)
+    result = {
         "id": record.get("Id"),
         "name": record.get("Name"),
         "account": (record.get("Account") or {}).get("Name"),
@@ -122,51 +123,49 @@ def classify(record: dict, team: list[dict], splits: list[dict]) -> dict:
         "nonCommissionable": record.get("Non_Commissionable__c"),
         **value,
     }
+    result.update(partnerDealSource=record.get('Partner_Deal_Source__c'),
+                  dealType=record.get('Deal_Type__c'), totalBookingArrUsd=record.get('Total_Booking_ARR_in_USD__c'))
+    from local_updates import decorate
+    decorate(result)
+    return result
 
 
 def build_soql() -> str:
-    types = ", ".join("'" + value + "'" for value in OPPORTUNITY_TYPES)
     return (
-        "SELECT Id, Name, StageName, CloseDate, Type, Amount, Non_Commissionable__c, Account.Name, Account.Owner.Name, "
-        "Account_Owner_Market_Segment__c, Region__c, " + REP_FIELDS +
-        f" FROM Opportunity WHERE {PARTNER_FIELD} != null "
-        f"AND ({PARTNER_REL}.Type = null OR {PARTNER_REL}.Type != '{EXCLUDED_PARTNER_TYPE}') "
-        "AND Non_Commissionable__c = false "
-        f"AND Type IN ({types}) AND StageName = '{CLOSED_STAGE}'"
+        'SELECT Id, Name, StageName, CloseDate, Type, Amount, Non_Commissionable__c, Account.Name, Account.Owner.Name, '
+        'Account_Owner_Market_Segment__c, Region__c, Partner_Deal_Source__c, Deal_Type__c, Total_Booking_ARR_in_USD__c, '
+        + LOCAL_REP_FIELDS + f' FROM Opportunity WHERE {PARTNER_FIELD} != NULL '
+        "AND Non_Commissionable__c = FALSE AND StageName = '08 - Closed' "
+        "AND Partner_Type__c <> 'Startup Program Partner' "
+        "AND Referring_Partner__r.Name NOT IN ('AWS Marketplace') ORDER BY CloseDate DESC"
     )
 
 
 def build_team_soql(opportunity_ids: list[str]) -> str:
-    ids = ",".join("'" + value + "'" for value in opportunity_ids)
-    return (
-        "SELECT OpportunityId, UserId FROM OpportunityTeamMember "
-        f"WHERE OpportunityId IN ({ids})"
-    )
+    ids = ','.join("'" + value + "'" for value in opportunity_ids)
+    return ('SELECT Id, OpportunityId, UserId, User.Name, TeamMemberRole, OpportunityAccessLevel '
+            f'FROM OpportunityTeamMember WHERE OpportunityId IN ({ids})')
 
 
-def build_split_soql(opportunity_ids: list[str], split_type_id: str) -> str:
-    ids = ",".join("'" + value + "'" for value in opportunity_ids)
-    return (
-        "SELECT OpportunityId, SplitOwnerId FROM OpportunitySplit "
-        f"WHERE OpportunityId IN ({ids})"
-    )
-
-
-def summarize(active_rows: list[dict]) -> dict:
-    return summary(active_rows)
+def build_split_soql(opportunity_ids: list[str]) -> str:
+    ids = ','.join("'" + value + "'" for value in opportunity_ids)
+    return ('SELECT Id, OpportunityId, SplitOwnerId, SplitOwner.Name, SplitType.MasterLabel, '
+            'Opportunity_Team_Role__c, SplitPercentage '
+            f'FROM OpportunitySplit WHERE OpportunityId IN ({ids})')
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Refresh the PSE Split Automation dashboard.")
     parser.add_argument("--org", help="Salesforce CLI org alias or username")
-    parser.add_argument("--export-dir", help="Also save a portable pse-data.json in this folder for manual dashboard upload")
+    parser.add_argument("--export-dir", help="Also save the current snapshot as pse-data.json in this folder")
     args = parser.parse_args()
 
     token, instance = sf_session(args.org)
     try:
         split_type_id = resolve_split_type_id(token, instance)
         records = sf_query(build_soql(), token, instance, "opportunities")
-        print(f"Found {len(records):,} commissionable Renewal, New Business, or Expansion 08 - Closed opportunities with a tagged Partner. Fetching team and split membership…", flush=True)
+        records=unique_opportunities(records,field='Id')
+        print(f"Found {len(records):,} in-scope closed Partner opportunities. Fetching team and split membership…", flush=True)
         team_by_opp: dict[str, list[dict]] = {}
         splits_by_opp: dict[str, list[dict]] = {}
         ids = [record["Id"] for record in records if record.get("Id")]
@@ -176,7 +175,7 @@ def main() -> None:
             futures = {}
             for batch in batches:
                 futures[pool.submit(sf_query, build_team_soql(batch), token, instance, "team members")] = ("team", batch)
-                futures[pool.submit(sf_query, build_split_soql(batch, split_type_id), token, instance, "splits")] = ("split", batch)
+                futures[pool.submit(sf_query, build_split_soql(batch), token, instance, "splits")] = ("split", batch)
             for completed, future in enumerate(as_completed(futures), start=1):
                 kind, _ = futures[future]
                 for member in future.result():
@@ -189,16 +188,39 @@ def main() -> None:
 
     classified = [classify(record, team_by_opp.get(record.get("Id"), []), splits_by_opp.get(record.get("Id"), [])) for record in records]
     rows = classified
-    summary = summarize(rows)
+    from local_updates import decorate
+    try:
+        previous=json.loads(Path(DATA_OUT).read_text())
+        reviews={row['id']:row['assignmentReview'] for row in previous.get('rows',[]) if row.get('assignmentReview')}
+    except (OSError,ValueError,KeyError):
+        reviews={}
+    selected=sorted({review.get('userId','') for review in reviews.values() if re.fullmatch(r'005[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?',review.get('userId',''))})
+    active=set()
+    for start in range(0,len(selected),200):
+        quoted=','.join("'"+key+"'" for key in selected[start:start+200])
+        users=sf_query('SELECT Id, IsActive FROM User WHERE Id IN ('+quoted+')',token,instance,'reviewed PSE status')
+        active.update(user['Id'] for user in users if user.get('IsActive') is True)
+    for row in rows:
+        if row['id'] in reviews:
+            review={**reviews[row['id']],'active':reviews[row['id']].get('userId') in active}
+            row['teamEntries']=team_by_opp.get(row['id'],[])
+            row['splitEntries']=splits_by_opp.get(row['id'],[])
+            decorate(row,review)
+            row['teamEntries']=row['updatePlan']['teamCurrent']
+            row['splitEntries']=row['updatePlan']['splitCurrent']
+    summary = local_summary(rows)
     data = {
         "generatedAt": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
-        "config": {"scope": "Commissionable 08 - Closed Renewal, New Business, and Expansion opportunities",
-                   "scopeVersion": SCOPE_VERSION, "excludedPartnerType": EXCLUDED_PARTNER_TYPE, "stage": CLOSED_STAGE, "partnerField": PARTNER_FIELD, "splitCheck": "any", "commissionableOnly": True,
-                   "opportunityTypes": list(OPPORTUNITY_TYPES), "splitType": SPLIT_TYPE_LABEL,
+        "config": {"scope": "Commissionable 08 - Closed Partner opportunities; all Opportunity Types",
+                   "scopeVersion": LOCAL_SCOPE_VERSION, "excludedPartnerType": EXCLUDED_PARTNER_TYPE, "stage": CLOSED_STAGE, "partnerField": PARTNER_FIELD, "splitCheck": "any", "commissionableOnly": True,
+                   "opportunityTypes": sorted({row['type'] for row in rows if row.get('type')}), "splitType": SPLIT_TYPE_LABEL,
                    "splitTypeId": split_type_id, "splitPercentage": SPLIT_PERCENTAGE},
         "summary": summary,
         "rows": rows,
     }
+    data['config'].update(scope='Commissionable 08 - Closed Partner opportunities; all Opportunity Types',
+                          opportunityTypes=sorted({row['type'] for row in rows if row.get('type')}),
+                          partnerTypeField='Partner_Type__c', excludedPartnerNames=['AWS Marketplace'])
     os.makedirs(os.path.dirname(DATA_OUT), exist_ok=True)
     with open(DATA_OUT + ".tmp", "w", encoding="utf-8") as output:
         json.dump(data, output, ensure_ascii=False, indent=2)
@@ -206,7 +228,7 @@ def main() -> None:
     os.replace(DATA_OUT + ".tmp", DATA_OUT)
     if args.export_dir:
         exported = export_snapshot(data, args.export_dir)
-        print(f"Saved upload file: {exported}")
+        print(f"Saved current-profile export: {exported}")
     print(f"Checked {len(records):,} closed opportunities with a tagged Partner.")
     print(f"Partner opportunities: {summary['total']:,}")
     print(f"PSE field, Opportunity Team and Splits already complete: {summary['tagged']:,}")
@@ -215,14 +237,9 @@ def main() -> None:
 
 
 def export_snapshot(data, directory):
-    from snapshot import MAX_UPLOAD_BYTES, validate_snapshot
-    checked = validate_snapshot(data)
-    # These are exactly the records eligible for the dashboard's category boxes.
-    checked['rows'] = [row for row in checked['rows'] if not row['partnerRepOnTeam'] or not row['partnerRepOnSplit']]
-    payload = validate_snapshot(checked)
+    from snapshot import validate_snapshot
+    payload = validate_snapshot(data)
     contents = json.dumps(payload, ensure_ascii=False, separators=(',', ':'), allow_nan=False)
-    if len(contents.encode('utf-8')) > MAX_UPLOAD_BYTES:
-        raise ValueError('The dashboard worklist export exceeds the 25 MB upload limit. The previous export was kept.')
     folder = Path(directory).expanduser()
     folder.mkdir(parents=True, exist_ok=True)
     target = folder / 'pse-data.json'

@@ -1,33 +1,24 @@
-# Set up PSE Split Automation from GitHub
+# Install your own PSE Split Automation dashboard
 
-1. Clone the repository and open its folder:
+Open Codex, choose a local folder, then copy and paste this entire prompt. Approve the installation and browser-login prompts that match this setup. Use your own Salesforce account.
 
-   ```bash
-   git clone https://github.com/justinemendez-svg/PSE-Split-Automation.git
-   cd PSE-Split-Automation
-   ```
+```text
+Install the latest local PSE Split Automation app on my computer from:
+https://github.com/justinemendez-svg/PSE-Split-Automation
 
-2. Install Salesforce CLI if needed: `brew install sf`.
-3. Log in through Zendesk SSO:
+Clone the repo, or pull its latest main branch if already cloned. Preserve my local changes and data. Read README.md and follow the current setup. Check/install Python 3.10+, Git and Salesforce CLI as needed.
 
-   ```bash
-   sf org login web --alias prod --instance-url https://zendesk.my.salesforce.com
-   ```
+Use MY OWN Salesforce account. If login is needed, run:
+sf org login web --alias prod --instance-url https://zendesk.my.salesforce.com
+Guide me through Salesforce/Okta authentication. Never print or share tokens.
 
-4. On macOS, double-click `serve.command` (or run `./serve.command`). The first run copies the runnable app into your user Application Support folder, installs a per-user background service, starts the dashboard, and opens it in Chrome. The service starts at login and restarts if it exits, so `http://localhost:8773` stays available while your Mac is on and awake. Run `serve.command` again after pulling repository changes to update the app copy.
+On macOS, run python3 install_local_service.py, then open http://localhost:8773/ in Chrome. On another OS, start the documented local server and explain that the terminal must stay open.
 
-   On other operating systems, start the local dashboard in a terminal and leave it running:
+Keep the complete current dashboard, layout, filters, Process Flow, manual Refresh and confirmed individual/bulk Salesforce update functionality. Do not deploy the older AppFoundry build or schedule automatic refreshes.
 
-   ```bash
-   python3 serve_local.py --org prod
-   ```
+Verify the app opens correctly. Show me Process Flow and explain that Refresh downloads current SFDC data only when clicked. Let me click Refresh to load my first data. Do not update any Salesforce records during setup, and never commit data or credentials.
 
-5. Open [http://localhost:8773](http://localhost:8773). The dashboard displays its saved snapshot. Salesforce data refreshes only when you click **Refresh**, including the first time you open the app. To remove the macOS background service later, run `python3 uninstall_local_service.py`.
+If you have questions, contact Justine Mendez / justine.mendez@zendesk.com.
+```
 
-The worklist includes only commissionable **Renewal**, **New Business**, and **Expansion** Opportunities at Stage **08 - Closed** with a tagged **Partner**, and a missing PSE field, Team membership, or Split membership. Keep an existing PSE; if blank, populate it from the tagged Partner’s Owner when Update is confirmed. Add missing Team members as **Partner Account Executive** with **Read Only** access. If the rep has no Split of any type, create a **100% Overlay** split with **Opportunity Team Role = Partner Account Executive**. Existing PSE values, Team entries, and Splits are preserved. User status is displayed rather than excluding inactive reps.
-
-Use the clickable boxes to filter tagged or blank PSE worklists. **Fiscal Quarter–Year**, **Opportunity Type**, **Market Segment**, **Region**, and **PSE Status** support multiple selections. Fiscal quarters use Close Date and Zendesk’s February–January fiscal calendar. Search supports Opportunity name, Account name, and Opportunity ID. Individual updates apply to one Opportunity; bulk updates and CSV export follow the current box, search, and filters across all pages. **Process Flow** explains the full workflow.
-
-The Salesforce snapshot and write audit stay local and are excluded from Git.
-
-For the current field mapping and complete workflow, see [README.md](README.md#scope-and-workflow) or **Process Flow** in the dashboard.
+After setup, open http://localhost:8773/, read **Process Flow**, then click **Refresh**. Review each action before confirming a Salesforce update. To install a later version, ask Codex to pull the latest repository, rerun the installer and reload the dashboard while preserving your snapshot, audit and logs.

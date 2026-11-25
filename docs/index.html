@@ -16,15 +16,16 @@
   button.ghost { border:1px solid var(--line); background:white; color:var(--text); } button.ghost:hover { background:#f3f5f7; }
   main { max-width:1500px; margin:0 auto; padding:24px; }
   .cards { display:grid; grid-template-columns:repeat(4,minmax(150px,1fr)); gap:14px; margin-bottom:20px; }
-  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:15px 18px; min-height:96px; }
-  .card .k { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.45px; }
-  .category-card { display:block; text-align:left; color:var(--text); font-weight:400; cursor:pointer; width:100%; font:inherit; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px 20px; min-height:170px; }
+  .card .k { color:var(--text); font-size:15px; font-weight:650; line-height:1.4; }
+  .category-card { display:grid; grid-template-rows:1fr auto auto; text-align:left; color:var(--text); font-weight:400; cursor:pointer; width:100%; font:inherit; }
   .category-card span { display:block; }
+  .category-card .sub { min-height:36px; }
   .category-card:hover { background:#edf5f3; border-color:#83a8a4; }
-  .category-card.selected { background:#eaf3f1; border:2px solid var(--teal); padding:14px 17px; }
+  .category-card.selected { background:#eaf3f1; border:2px solid var(--teal); padding:17px 19px; }
   .category-card .v { color:var(--teal); }
   .category-context { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin:0 0 15px; font-weight:650; }
-  .card .v { font-size:28px; font-weight:720; margin-top:5px; } .card.ok .v { color:var(--ok); } .card.warn .v { color:var(--warn); }
+  .card .v { font-size:32px; font-weight:720; margin-top:8px; } .card.ok .v { color:var(--ok); } .card.warn .v { color:var(--warn); }
   .toolbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
   input[type=search],select { min-height:40px; padding:8px 12px; border:1px solid var(--line); border-radius:8px; background:#f3f5f7; color:var(--text); font:inherit; }
   input[type=search] { flex:1; min-width:250px; } select { min-width:150px; cursor:pointer; }
@@ -46,6 +47,10 @@
   .pill.warn { background:#fff0d4; color:var(--warn); }
   .bulk-bar { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:14px; padding:13px 17px; background:var(--panel); border:1px solid var(--line); border-radius:12px; box-shadow:inset 3px 0 0 var(--warn); }
   .bulk-info { font-weight:680; }
+  .readiness-filters { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  button.readiness-filter { padding:8px 12px; border:1px solid var(--line); border-radius:8px; background:white; color:var(--text); font-weight:500; }
+  button.readiness-filter:hover { background:#f2f6f5; }
+  button.readiness-filter[aria-pressed="true"] { border-color:var(--teal); background:#eaf3f1; color:var(--teal); font-weight:700; }
   .action-list { display:grid; gap:14px; }
   .action-card { overflow:hidden; background:var(--panel); border:1px solid var(--line); border-radius:12px; box-shadow:inset 3px 0 0 var(--warn); }
   .action-card.is-tagged { box-shadow:inset 3px 0 0 var(--ok); }
@@ -55,6 +60,23 @@
   a.btn-update:hover { background:#23646a; }
   .details-line { margin-top:4px; color:var(--muted); font-size:12px; overflow-wrap:anywhere; }
   .pse-tag { display:inline-flex; align-items:center; gap:8px; margin-top:9px; padding:4px 10px; border-radius:7px; background:#eaf2f1; color:var(--teal); }
+  .mismatch-name,.pse-name.mismatch-name { color:#b42318; font-weight:700; }
+  .readiness-row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:12px; }
+  .readiness-badge { padding:3px 9px; border-radius:20px; font-size:12px; font-weight:650; background:#fff0d4; color:#8a5600; }
+  .readiness-badge.ready,.readiness-badge.complete { background:#edf5e9; color:#33732c; }
+  .plan-label { margin:10px 0 4px; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.5px; }
+  .plan-current { font-size:12px; font-weight:600; overflow-wrap:anywhere; }
+  .plan-required { margin-top:12px; padding:10px 12px; border-radius:8px; background:#edf4f3; font-size:12px; font-weight:600; }
+  .plan-required .plan-label { margin-top:0; }
+  .plan-action { color:#b42318; font-size:12px; font-weight:600; margin-top:12px; }
+  .plan-action.good { color:#33732c; }
+  .action-footer { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; padding:14px 18px; border-top:1px solid var(--line); }
+  .assignment-review { padding:18px; border-top:1px solid var(--line); background:#fff7e8; }
+  .review-fields { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .assignment-review .review-fields { margin-top:12px; align-items:end; }
+  .assignment-review label { display:grid; gap:5px; font-size:12px; }
+  .assignment-review input[type=search] { min-width:170px; width:100%; }
+  .assignment-review .review-confirm { display:flex; align-items:center; margin-top:14px; }
   .action-steps { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px; padding:14px 18px 16px; border-top:1px solid var(--line); }
   .step { min-width:0; }
   .step-title { font-size:14px; font-weight:700; }
@@ -99,9 +121,6 @@
   @media(max-width:600px) { .help-filters { grid-template-columns:1fr; gap:4px; } .help-filters dd { margin-bottom:12px; } }
   .text-link { padding:0; background:transparent; color:var(--teal); font:inherit; font-weight:650; text-decoration:underline; text-underline-offset:3px; }
   .text-link:hover { background:transparent; color:#23646a; }
-  .setup-prompt { display:block; width:100%; min-height:420px; padding:16px; border:1px solid var(--line); border-radius:8px; background:#f3f5f7; color:var(--text); font:13px/1.6 ui-monospace,monospace; resize:vertical; }
-  #downloadPrompt { min-height:150px; }
-  .setup-actions { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin:12px 0; }
   button:focus-visible, a:focus-visible { outline:3px solid #6a9fa3; outline-offset:3px; }
   @media(max-width:650px) { .branches { grid-template-columns:1fr; } .process-intro h2 { font-size:25px; } .process-bar { padding:14px 16px; } .flow-step { padding:16px; } }
 </style>
@@ -112,16 +131,16 @@
   <div class="spacer"></div>
   <span id="refreshMsg" class="sub" aria-live="polite"></span><span id="who" class="sub"></span>
   <button class="ghost" id="processFlowBtn">Process Flow</button>
-  <button class="ghost hidden" id="uploadDataBtn">Upload the data</button><button class="ghost hidden" id="refreshBtn">Refresh</button><button id="csvBtn">Export CSV</button>
+  <button class="ghost hidden" id="refreshBtn">Refresh</button><button id="csvBtn">Export CSV</button>
 </header>
 <main>
   <div id="status" class="status">Loading dashboard data…</div>
   <section id="dashboard" class="hidden">
     <div class="cards" role="group" aria-label="Filter Opportunities by PSE assignment">
-      <button type="button" class="card category-card" data-pse-category="tagged" aria-pressed="false" aria-controls="panelUpdate"><span class="k">Opps with tagged correct PSE</span><span class="v" id="cWithPse">—</span><span class="sub">Partner Account Owner &amp; tagged PSE are the same · missing Team or Split</span></button>
-      <button type="button" class="card category-card" data-pse-category="different" aria-pressed="false" aria-controls="panelUpdate"><span class="k">Opps with Partner, PSE different from Owner</span><span class="v" id="cDifferentPse">—</span><span class="sub">Partner Account Owner &amp; tagged PSE are NOT the same · missing Team or Split</span></button>
-      <button type="button" class="card category-card" data-pse-category="untagged" aria-pressed="false" aria-controls="panelUpdate"><span class="k">Partner but no tagged PSE</span><span class="v" id="cWithoutPse">—</span><span class="sub">PSE blank · Partner Owner missing from Team or Split</span></button>
-      <button type="button" class="card category-card selected" data-pse-category="all" aria-pressed="true" aria-controls="panelUpdate"><span class="k">All Opps to update</span><span class="v" id="cNeedsUpdate">—</span><span class="sub">With or without tagged PSE · missing Team or Split</span></button>
+      <button type="button" class="card category-card" data-pse-category="tagged" aria-pressed="false" aria-controls="panelUpdate"><span class="k">Partner Opps with the Correct PSE Tagged</span><span class="v" id="cWithPse">—</span><span class="sub">Partner Account Owner &amp; tagged PSE are the same · needs PSE, Team or Split changes</span></button>
+      <button type="button" class="card category-card" data-pse-category="untagged" aria-pressed="false" aria-controls="panelUpdate"><span class="k">Partner Opps with No PSE Tagged</span><span class="v" id="cWithoutPse">—</span><span class="sub">PSE blank · needs PSE, Team or Split changes</span></button>
+      <button type="button" class="card category-card" data-pse-category="different" aria-pressed="false" aria-controls="panelUpdate"><span class="k">Partner Opps | Tagged PSE and Partner Owner is different</span><span class="v" id="cDifferentPse">—</span><span class="sub">Partner Account Owner &amp; tagged PSE are NOT the same · needs PSE, Team or Split changes</span></button>
+      <button type="button" class="card category-card selected" data-pse-category="all" aria-pressed="true" aria-controls="panelUpdate"><span class="k">All Opps to update</span><span class="v" id="cNeedsUpdate">—</span><span class="sub">With or without tagged PSE · needs PSE, Team or Split changes</span></button>
     </div>
     <div class="category-context"><span id="categoryLabel" aria-live="polite">Showing all Opportunities to update</span><span class="sub">Card counts follow your search and filters. Select a box to filter the list.</span></div>
     <div class="toolbar">
@@ -129,6 +148,10 @@
       <div class="multi-filter" id="quarterFilter" data-filter-title="Fiscal Quarter–Year" data-filter-key="fiscalQuarter" data-filter-label="fiscal quarters" title="Based on Close Date. Zendesk fiscal year: February–January.">
         <button type="button" class="filter-trigger" id="quarterFilterButton" aria-haspopup="true" aria-expanded="false" aria-controls="quarterFilterMenu">Fiscal Quarter–Year</button>
         <div class="filter-menu hidden" id="quarterFilterMenu" role="group" aria-label="Fiscal Quarter-Year options"></div>
+      </div>
+      <div class="multi-filter" id="monthFilter" data-filter-title="Month" data-filter-key="month" data-filter-label="months" title="Based on Close Date. Month choices follow the selected fiscal quarters.">
+        <button type="button" class="filter-trigger" id="monthFilterButton" aria-haspopup="true" aria-expanded="false" aria-controls="monthFilterMenu">Month</button>
+        <div class="filter-menu hidden" id="monthFilterMenu" role="group" aria-label="Month options"></div>
       </div>
       <div class="multi-filter" id="typeFilter" data-filter-title="Opportunity Type" data-filter-key="type" data-filter-label="types">
         <button type="button" class="filter-trigger" id="typeFilterButton" aria-haspopup="true" aria-expanded="false" aria-controls="typeFilterMenu">Opportunity Type</button>
@@ -151,14 +174,18 @@
     <section id="panelUpdate">
       <h2>PSE to update</h2>
       <div id="bulkBar" class="bulk-bar">
-        <div class="bulk-info"><span id="bulkCount">0</span> Opps need a PSE field, Team, or Split update</div>
-        <button id="updateAllBtn">Update all 0 in Salesforce →</button><span id="bulkMsg" class="msg"></span>
+        <div class="readiness-filters" role="group" aria-label="Filter by update readiness">
+          <button type="button" id="readinessAll" class="readiness-filter" data-readiness="all" aria-pressed="true" aria-controls="actionList">All <span id="bulkCount">0</span> Opps</button>
+          <button type="button" id="readinessRvp" class="readiness-filter" data-readiness="rvp" aria-pressed="false" aria-controls="actionList"><span id="rvpFilterCount">0</span> Need RVP confirmation</button>
+          <button type="button" id="readinessReady" class="readiness-filter" data-readiness="ready" aria-pressed="false" aria-controls="actionList"><span id="readyFilterCount">0</span> Ready to update</button>
+        </div>
+        <button id="updateAllBtn">Update all ready — 0 in Salesforce →</button><span id="bulkReadiness" class="sub"></span><span id="bulkMsg" class="msg"></span>
       </div>
       <div id="actionList" class="action-list"></div>
       <div id="actionEmpty" class="empty hidden">No Opportunities need a PSE field, Team, or Split update for these filters.</div>
       <div class="pagination"><span id="actionPageInfo"></span><button class="ghost" id="actionPrev">Previous</button><button class="ghost" id="actionNext">Next</button></div>
     </section>
-    <footer class="sub">Commissionable Renewal, New Business, and Expansion Opportunities at Stage 08 - Closed with a tagged Partner, excluding Startup Program Partners, and a PSE missing from the Team, Splits, or both. When the PSE field is blank, membership checks use the Partner Owner. Existing PSE values and existing Team and Split entries are preserved. Refresh reads Salesforce; Update actions apply the process after confirmation.</footer>
+    <footer class="sub"><span>Commissionable Opportunities at Stage 08 - Closed with a tagged Partner; all Opportunity Types. Excludes Opportunity Partner Type Startup Program Partner and Partner AWS Marketplace. The worklist shows missing PSE fields or memberships, role corrections, and assignments requiring review.</span> When the PSE field is blank, membership checks use the Partner Owner. Existing PSE values change only after an explicit review; correct entries are preserved. Refresh reads Salesforce; Update actions apply the process after confirmation.</footer>
   </section>
 </main>
 
@@ -169,123 +196,47 @@
     <p class="process-scope"><b>Filter:</b> Closed Opportunity · With Partner Tagged · Stage: 08 - Closed · Excludes Startup Program Partner</p>
     <section class="flow-step"><h3><span class="step-number">1</span> Does the closed Opportunity have a Partner tagged?</h3>
       <p>Start with Opportunities whose Stage is exactly <b>08 - Closed</b>. Check whether the closed Opportunity has a tagged <b>Partner</b>.</p>
-      <div class="branches"><div class="branch"><strong>Partner is tagged → Continue</strong><p>Use the tagged Partner for this process. If Partner Type is Startup Program Partner, stop and exclude the Opportunity.</p></div><div class="branch"><strong>No Partner → Stop</strong><p>Skip this Opportunity. It does not appear in the worklist.</p></div></div>
+      <div class="branches"><div class="branch"><strong>Partner is tagged → Continue</strong><p>Use the tagged Partner for this process. <span>Exclude the Opportunity if its Partner Type is Startup Program Partner or its tagged Partner is AWS Marketplace.</span></p></div><div class="branch"><strong>No Partner → Stop</strong><p>Skip this Opportunity. It does not appear in the worklist.</p></div></div>
       <p class="also">Salesforce field: the lookup labeled “Partner” is <code>Referring_Partner__c</code>.</p>
     </section><div class="flow-arrow" aria-hidden="true">↓</div>
     <section class="flow-step"><h3><span class="step-number">2</span> Choose the Partner Sales Rep</h3>
-      <div class="branches"><div class="branch"><strong>PSE already populated → Use existing rep</strong><p>Keep <code>Partner_Sales_Rep__c</code> exactly as it is, even if the Partner has a different Owner.</p></div><div class="branch"><strong>PSE blank → Use the Partner’s Owner</strong><p>When you click Update, populate <code>Partner_Sales_Rep__c</code> with the Owner of the tagged Partner.</p></div></div>
-      <p class="process-note"><b>Key rule:</b> Populate the PSE field only when blank. Both paths continue to the Team check, then the Splits check.</p>
+      <div class="branches"><div class="branch"><strong>PSE already populated → Use existing rep</strong><p>Keep the existing PSE unless an explicit assignment review confirms a different active PSE. Mismatched assignments require review. Inactive PSEs require an RVP-confirmed active covering PSE and the Coverage role.</p></div><div class="branch"><strong>PSE blank → Use the Partner’s Owner</strong><p>When you click Update, populate <code>Partner_Sales_Rep__c</code> with the Owner of the tagged Partner.</p></div></div>
+      <p class="process-note"><b>Key rule:</b> Blank PSE fields use the active Partner Owner. A populated PSE changes only after an explicit assignment review. Both paths continue to Team and Split checks.</p>
     </section><div class="flow-arrow" aria-hidden="true">↓</div>
     <section class="flow-step"><h3><span class="step-number">3</span> Check the Opportunity Team</h3>
-      <div class="branches"><div class="branch"><strong>Rep already on the Team → Keep entry</strong><p>Make no Team change. Continue to Opportunity Splits.</p></div><div class="branch"><strong>Rep missing → Add Team member</strong><dl><dt>User</dt><dd>Chosen PSE</dd><dt>Team Role</dt><dd>Partner Account Executive</dd><dt>Opportunity Access</dt><dd>Read Only</dd></dl></div></div>
+      <div class="branches"><div class="branch"><strong>Rep already on the Team → Keep entry</strong><p>Check the actual Team role. Correct a blank or different role to the reviewed required role. Keep the existing access level; new members receive Read Only.</p></div><div class="branch"><strong>Rep missing → Add Team member</strong><dl><dt>User</dt><dd>Chosen PSE</dd><dt>Team Role</dt><dd>Partner Account Executive</dd><dt>Opportunity Access</dt><dd>Read Only</dd></dl></div></div>
     </section><div class="flow-arrow" aria-hidden="true">↓</div>
     <section class="flow-step"><h3><span class="step-number">4</span> Check Opportunity Splits</h3>
-      <div class="branches"><div class="branch"><strong>Rep already on a Split → Keep entry</strong><p>Make no Split change. Any existing Split for that rep counts as present; its type, role, and percentage stay as they are.</p></div><div class="branch"><strong>Rep missing → Add Overlay Split</strong><dl><dt>Split Owner</dt><dd>Chosen PSE</dd><dt>Split Type</dt><dd>Overlay</dd><dt>Team Role</dt><dd>Partner Account Executive</dd><dt>Percent</dt><dd>100.00%</dd></dl></div></div>
+      <div class="branches"><div class="branch"><strong>Rep already on a Split → Keep entry</strong><p>Check the actual Split role and correct it to the reviewed required role. Preserve the existing Split type and percentage. Multiple entries require individual review in Salesforce.</p></div><div class="branch"><strong>Rep missing → Add Overlay Split</strong><dl><dt>Split Owner</dt><dd>Chosen PSE</dd><dt>Split Type</dt><dd>Overlay</dd><dt>Team Role</dt><dd>Partner Account Executive</dd><dt>Percent</dt><dd>100.00%</dd></dl></div></div>
     </section>
     <section class="process-help"><h3>Using the dashboard</h3>
-      <p>The list shows closed Opportunities with a Partner tagged where the PSE still needs to be added to the Opportunity Team, Opportunity Splits, or both. When the PSE field is blank, these checks use the tagged Partner’s Owner.</p>
-      <div data-hosted-upload class="hidden"><h4>Upload the data</h4><p>First time downloading the data? <button type="button" id="firstTimeProcessLink" class="text-link">View first-time setup instructions</button>. The guide includes a prompt for your Codex and the manual upload steps. Closing the guide takes you to Upload the data.</p><p>Run the local Salesforce export command, then click <b>Upload the data</b> and choose the generated <b>pse-data.json</b>. Uploading replaces the shared saved snapshot. Opening or reloading this dashboard shows the last uploaded file; Google Drive changes are not imported automatically.</p><p>Use the local dashboard for Salesforce updates. The hosted dashboard supports the worklist, filters, and CSV export.</p></div><div data-local-actions><h4>Refresh</h4>
+      <p>The list shows closed Partner Opportunities with missing PSE fields, missing Team or Split memberships, incorrect roles, or assignments requiring review. When the PSE field is blank, these checks use the tagged Partner’s Owner.</p>
+      <div data-local-actions><h4>Refresh</h4>
       <p>Click <b>Refresh</b> to pull the latest data from Salesforce. The dashboard updates its counts and list based on the current Opportunity, Partner, PSE, Team, and Split records in SFDC. Data refreshes only when this button is clicked. Opening or reloading the page shows the last saved data.</p>
       </div><h4>Clickable boxes</h4>
       <p>Click a box to filter the list by category:</p>
       <ol>
-        <li><b>Opps with tagged correct PSE:</b> Closed Opportunities with a Partner where the tagged PSE and Partner Account Owner are the same user, and that PSE is missing from the Opportunity Team, Opportunity Splits, or both.</li>
-        <li><b>Opps with Partner, PSE different from Owner:</b> Closed Opportunities with a Partner where the tagged PSE and Partner Account Owner are different users, and that PSE is missing from the Opportunity Team, Opportunity Splits, or both. Update preserves the existing tagged PSE.</li>
-        <li><b>Partner but no tagged PSE:</b> Closed Opportunities with a Partner but a blank PSE field, where the Partner’s Owner is missing from the Opportunity Team, Opportunity Splits, or both. The Owner is the PSE that will be used when you click Update.</li>
-        <li><b>All Opps to update:</b> Closed Opportunities with a Partner, with or without a tagged PSE, that still need a Team or Split update.</li>
+        <li><b>Partner Opps with the Correct PSE Tagged:</b> The tagged PSE and Partner Owner are the same user, but a field, membership or role still needs updating.</li>
+        <li><b>Partner Opps with No PSE Tagged:</b> The PSE field is blank. Use the active Partner Owner, then check Team and Splits.</li>
+        <li><b>Partner Opps | Tagged PSE and Partner Owner is different:</b> The two users differ. Confirm the assignment before updating. An inactive PSE requires an RVP-approved active covering PSE and the Coverage role.</li>
+        <li><b>All Opps to update:</b> All categories, including records that need review or have missing information.</li>
       </ol>
-      <p><b>What “missing” means:</b> If the rep is already on the Team but has no Split, the Opportunity stays in the list. The same applies if the rep has a Split but is missing from the Team. If the rep is already on both, the Opportunity is excluded from all three boxes.</p>
+      <p><b>What “missing” means:</b> If the rep is already on the Team but has no Split, the Opportunity stays in the list. The same applies if the rep has a Split but is missing from the Team. The Opportunity remains until the PSE field, required roles and memberships are correct. Review, inactive and blocked records stay visible but are excluded from bulk updates.</p>
       <h4>Search and filters</h4>
       <p>Search by <b>Opportunity name, Opportunity ID, or Account name</b>. Use the filters below to narrow the selected category. You can select multiple values in each filter; selections across different filters work together. Clear a filter’s selections to remove that restriction.</p>
       <dl class="help-filters">
         <dt>Fiscal Quarter–Year</dt><dd>Filters by Opportunity Close Date using Zendesk’s fiscal calendar: Q1 Feb–Apr, Q2 May–Jul, Q3 Aug–Oct, and Q4 Nov–Jan. For example, November 2026 through January 2027 is FY2027 Q4.</dd>
-        <dt>Opportunity Type</dt><dd>Choose Renewal, New Business, Expansion, or a combination.</dd>
+        <dt>Month</dt><dd>Filters by Opportunity Close Date. Month choices follow the selected fiscal quarters. For example, FY2027 Q4 shows November 2026, December 2026, and January 2027. Select multiple months if needed; changing quarters clears unavailable month selections.</dd>
+        <dt>Opportunity Type</dt><dd><span>Choose any Opportunity Types present in the current data; there is no fixed Type restriction.</span></dd>
         <dt>Market Segment</dt><dd>Filters by the Opportunity’s Account Owner Market Segment.</dd>
-        <dt>Region</dt><dd>Filters by the Region recorded on the Opportunity.</dd>
+        <dt>Region</dt><dd>Filters by the tagged Partner’s Region (<code>Referring_Partner__r.Region__c</code>).</dd>
         <dt>PSE Status</dt><dd>Choose Active, Inactive, or both. If a PSE is tagged, this is that user’s status. If the PSE field is blank, this is the Partner Owner’s status.</dd>
       </dl>
-      <p>The box counts reflect your search and filters. The matching-PSE, different-PSE, and no-PSE categories are separate. User IDs determine whether the PSE matches the Partner Account Owner; older exports use names until fresh data is exported. Records without enough information to compare stay visible in All Opps to update.</p>
+      <p>All counts use unique Opportunity IDs. The box counts reflect your search and filters. Use <b>All Opps</b>, <b>Need RVP confirmation</b>, or <b>Ready to update</b> to filter the list further. Their counts use the current category and other filters before that readiness selection. The matching-PSE, different-PSE, and no-PSE categories are separate. User IDs determine whether the PSE matches the Partner Account Owner; older exports use names until fresh data is exported. Records without enough information to compare stay visible in All Opps to update.</p>
       <div data-local-actions><h4>Update and export</h4>
-      <p><b>Update in Salesforce</b> applies the process to one Opportunity after confirmation. <b>Update all N in Salesforce</b> applies it to all matching results across all pages, using your selected box, search, and filters. <b>Export CSV</b> downloads that same filtered list.</p>
-      <p>Refresh only reads Salesforce. Update actions preserve an existing PSE, populate a blank PSE from the tagged Partner’s Owner, and add missing Team and Split entries. Each Opportunity uses its own PSE. Existing entries are preserved; Salesforce errors are reported so you can retry the remaining steps.</p>
-      </div><p><b>Scope:</b> Commissionable Renewal, New Business, and Expansion Opportunities at Stage exactly <b>08 - Closed</b>, with a Partner tagged. Partners with Partner Type <b>Startup Program Partner</b> are excluded.</p>
-    </section>
-  </div>
-</dialog>
-<dialog id="uploadPage" class="process-page" aria-labelledby="uploadTitle">
-  <div class="process-bar"><div class="process-brand">PSE Split Automation</div><button id="closeUploadPage" class="ghost" autofocus>Close · Back to dashboard ×</button></div>
-  <div class="process-content">
-    <div class="process-intro"><h2 id="uploadTitle">Upload the data</h2><p>Load your Salesforce export into the dashboard</p></div>
-    <section class="process-help">
-      <h3>First time here?</h3>
-      <p><button type="button" id="firstTimeUploadLink" class="text-link">View first-time setup instructions</button> to set up the download using your own Salesforce account. The guide includes a ready-to-copy Codex prompt. Close the guide to return here.</p>
-      <h3>1 · Ask Codex to download fresh data</h3>
-      <p>Already set up? Copy this refresh command, paste it into your Codex chat, and send it. Codex will replace the Google Drive file with the latest SFDC data using your existing setup.</p>
-      <div class="setup-actions"><button type="button" id="copyDownloadPrompt">Copy refresh command</button><span id="copyDownloadMsg" class="sub" role="status" aria-live="polite"></span></div>
-      <textarea id="downloadPrompt" class="setup-prompt" readonly aria-label="Codex download prompt">Refresh the PSE Split Automation data from SFDC using my existing setup and my own Salesforce account. Replace pse-data.json in my synced Google Drive folder: GTM Ops/MSS/PSE_Split_Automation. Confirm the extraction date and Opportunity count when done. Do not change Salesforce records or upload to AppFoundry.</textarea>
-      <p>Wait for Codex to confirm the download succeeded and show the extraction date, Opportunity count, and full file path. Wait for Google Drive to finish syncing before choosing the file below:</p>
-      <p style="overflow-wrap:anywhere"><code>GTM Ops/MSS/PSE_Split_Automation/pse-data.json</code></p>
-      <h3>2 · Choose the exported file</h3>
-      <p>Select <b>pse-data.json</b> from that folder. Use the complete JSON export; the dashboard’s filtered CSV export cannot be uploaded here. Maximum size: 25 MB.</p>
-      <input id="uploadFile" type="file" accept=".json,application/json" aria-label="Salesforce dashboard data file" />
-      <h3>3 · Upload to the dashboard</h3>
-      <p>This replaces the saved data for everyone using this AppFoundry dashboard. It does not update Salesforce. To show later Salesforce changes, send the refresh command to Codex again, then manually upload the new file.</p>
-      <button id="confirmUploadBtn" disabled>Upload data to dashboard</button>
-      <p id="uploadMsg" class="msg" role="status" aria-live="polite">Choose pse-data.json to preview the extraction date and record count.</p>
-      <p>Close this page or press Escape to return to the dashboard. Your search and filters are preserved where available in the uploaded data.</p>
-    </section>
-  </div>
-</dialog>
-<dialog id="setupInstructions" class="process-page" aria-labelledby="setupTitle">
-  <div class="process-bar"><div class="process-brand">PSE Split Automation</div><button id="closeSetupInstructions" class="ghost" autofocus>Close · Back to Upload ×</button></div>
-  <div class="process-content">
-    <div class="process-intro"><h2 id="setupTitle">First-time setup instructions</h2><p>Set up your Salesforce download once, then upload fresh data manually</p></div>
-    <section class="process-help">
-      <h3>Before you start</h3>
-      <p>You need your own Salesforce account with API access and permission to read the required records, Google Drive for desktop with <b>GTM Ops/MSS/PSE_Split_Automation</b> synced and writable, and Codex running on your computer. The repository is public: <a href="https://github.com/justinemendez-svg/PSE-Split-Automation" target="_blank" rel="noopener">PSE-Split-Automation on GitHub</a>.</p>
-      <h3>1 · Paste this prompt into your Codex</h3>
-      <p>To set up the download to Google Drive, copy the complete prompt below, paste it into a new Codex chat on your computer, and send it. Follow any installation or Salesforce/Okta sign-in steps Codex shows you. Each person must use their own account and local folder path.</p>
-      <div class="setup-actions"><button type="button" id="copySetupPrompt">Copy Codex prompt</button><span id="copySetupMsg" class="sub" role="status" aria-live="polite"></span></div>
-      <textarea id="setupPrompt" class="setup-prompt" readonly aria-label="Codex setup prompt">Set up the PSE Split Automation Salesforce data export on my computer using this public repository:
-
-https://github.com/justinemendez-svg/PSE-Split-Automation
-
-Clone the repo, or pull the latest version if it already exists. Read its setup instructions and check that Python 3, Git, and Salesforce CLI are installed.
-
-Use MY OWN Salesforce account and CLI session. If login is needed, guide me through Salesforce/Okta authentication using:
-
-sf org login web --alias prod --instance-url https://zendesk.my.salesforce.com
-
-Locate MY locally synced Google Drive folder corresponding to:
-
-Shared drives/GTM Ops/MSS/PSE_Split_Automation
-
-Discover the actual path on my computer—do not use Justine’s username or assume her local path exists. If the shared folder is unavailable or I cannot write to it, explain the missing access before continuing.
-
-Run the repository’s read-only export command using my Salesforce account and the discovered folder:
-
-python3 export_for_upload.py --org prod --export-dir &quot;&lt;MY_ACTUAL_SYNCED_FOLDER_PATH&gt;&quot;
-
-This must download the latest Salesforce data and save/replace pse-data.json in that same shared Google Drive folder. Preserve the repository’s existing scope and classification rules.
-
-Verify that the export completed successfully, the JSON passes the repository’s validation, and the file exists in the correct folder. Report its extraction date, Opportunity count, and full path.
-
-Do not modify Salesforce records, commit exported data to GitHub, schedule automatic refreshes, or upload the file to AppFoundry. The AppFoundry upload will be done manually.
-
-Finally, give me the exact command to reuse whenever I want to refresh the Google Drive data.</textarea>
-      <h3>2 · Check the downloaded file</h3>
-      <p>Wait for Codex to confirm the export succeeded. It should report the extraction date, Opportunity count, and full path to <b>pse-data.json</b> in your synced <b>PSE_Split_Automation</b> folder. Wait for Google Drive to finish syncing. Keep the exact reusable export command Codex gives you.</p>
-      <h3>3 · Upload the file manually</h3>
-      <ol>
-        <li>Click <b>Close · Back to Upload</b> at the top of this guide. You will return to <b>Upload the data</b>.</li>
-        <li>Choose <b>pse-data.json</b> from your synced <b>GTM Ops/MSS/PSE_Split_Automation</b> folder. Use JSON, not the dashboard’s Export CSV file. Maximum size: 25 MB.</li>
-        <li>Check the extraction date and record count shown in the preview, then click <b>Upload data to dashboard</b>.</li>
-        <li>Wait for <b>Upload complete</b>, then click <b>Close · Back to dashboard</b> to view the updated counts and list.</li>
-      </ol>
-      <h3>Next time you need fresh data</h3>
-      <p>Return to Upload the data, copy the refresh command into your Codex chat, and wait for the export and Google Drive sync to finish. Then repeat the manual upload steps above. First-time setup is only needed again if your computer, Salesforce access, or Drive folder changes.</p>
-      <p><b>What changes:</b> the command reads Salesforce and replaces the shared Google Drive export. Uploading replaces the saved data for everyone using this dashboard. Neither step updates Salesforce records. There are no scheduled downloads or automatic uploads.</p>
-      <p>Pressing Escape also closes this guide and returns you to the Upload page.</p>
+      <p><b>Update in Salesforce</b> applies the process to one Opportunity after confirmation. <b>Update all ready — N in Salesforce</b> applies it only to ready records across all filtered pages. Records needing review, RVP confirmation or missing information are skipped. <b>Export CSV</b> downloads that same filtered list.</p>
+      <p>Refresh only reads Salesforce. Update actions preserve an existing PSE, populate a blank PSE from the tagged Partner’s Owner, and add missing Team and Split entries. Each Opportunity uses its current or explicitly reviewed PSE. Blank or different roles are corrected; existing access levels, split types, and percentages are preserved; Salesforce errors are reported so you can retry the remaining steps.</p>
+      </div><p><b>Scope:</b> <span>Commissionable Opportunities at Stage <b>08 - Closed</b>, with a Partner tagged, across all Opportunity Types. Excludes <b>Opportunity Partner_Type__c = Startup Program Partner</b> and tagged Partner <b>AWS Marketplace</b>. The Region filter uses the tagged Partner’s Region. No automatic Close Date restriction applies.</span></p>
     </section>
   </div>
 </dialog>

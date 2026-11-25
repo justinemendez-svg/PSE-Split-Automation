@@ -19,12 +19,14 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from workflow import CLOSED_STAGE, REP_FIELDS, PARTNER_FIELD, EXCLUDED_PARTNER_TYPE, execute, in_scope, is_complete, summary
+from workflow import CLOSED_STAGE, EXCLUDED_PARTNER_TYPE, is_complete
+from local_scope import LOCAL_SCOPE_VERSION, unique_opportunities, local_summary
+from local_updates import execute_local, read_current, decorate, VALID_ROLES, COVERAGE_ROLE
 
 from refresh import (
-    API_VERSION, OPPORTUNITY_TYPES, SCOPE_VERSION, SPLIT_PERCENTAGE,
-    SPLIT_TYPE_LABEL, build_split_soql, build_team_soql,
-    resolve_split_type_id, sf_query, sf_session, summarize,
+    API_VERSION, SPLIT_PERCENTAGE,
+    SPLIT_TYPE_LABEL,
+    resolve_split_type_id, sf_query, sf_session,
 )
 
 HERE = Path(__file__).resolve().parent
@@ -119,22 +121,26 @@ def valid_ids(value) -> list[str]:
 def allowed_missing_ids() -> set[str]:
     try:
         data = json.loads(DATA.read_text(encoding="utf-8"))
+        data['rows']=unique_opportunities(data.get('rows',[]))
     except (OSError, json.JSONDecodeError) as error:
         raise RuntimeError("Refresh the dashboard data before updating Opps.") from error
-    if (data.get("config") or {}).get("scopeVersion") != SCOPE_VERSION:
+    if (data.get("config") or {}).get("scopeVersion") != LOCAL_SCOPE_VERSION:
         raise RuntimeError("Refresh the dashboard data to load the commissionable 08 - Closed Opportunity scope.")
     return {row["id"] for row in data.get("rows", [])
             if row.get("id") and row.get("partnerId") and row.get("stage") == CLOSED_STAGE and row.get("nonCommissionable") is False
             and 'partnerType' in row and row.get('partnerType') != EXCLUDED_PARTNER_TYPE
-            and row.get("type") in OPPORTUNITY_TYPES and not is_complete(row)}
+            and row.get('partnerName') != 'AWS Marketplace'
+            and (row.get('updatePlan',{}).get('status') != 'complete' if row.get('updatePlan') else not is_complete(row))}
 
 
 def run_workflow(opp_ids, write=False):
     # All write routes share the same lock and execution path.
     with WRITE_LOCK, REFRESH_LOCK:
         refresh_session()
-        result = execute(opp_ids, allowed_missing_ids(), query_current,
-                         sf_rest, current_split_type_id, write=write)
+        saved=json.loads(DATA.read_text())
+        approvals={row['id']:row['assignmentReview'] for row in saved.get('rows',[]) if row.get('assignmentReview')}
+        result = execute_local(opp_ids, allowed_missing_ids(), query_current,
+                               sf_rest, current_split_type_id, write=write, approvals=approvals)
         update_local_snapshot(result["states"])
         if write:
             audit({"type": "partner_pse_team_split_update", "requested": len(opp_ids),
@@ -151,11 +157,12 @@ def update_local_snapshot(states: dict[str, dict]) -> None:
         return
     with SNAPSHOT_LOCK:
         data = json.loads(DATA.read_text(encoding="utf-8"))
+        data['rows']=unique_opportunities(data.get('rows',[]))
         for row in data.get("rows", []):
             state = states.get(row.get("id"))
             if state:
                 row.update(state)
-        data["summary"] = summary(data.get("rows", []))
+        data["summary"] = local_summary(data.get("rows", []))
         temp = DATA.with_suffix(".json.tmp")
         temp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         os.replace(temp, DATA)
@@ -197,7 +204,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, {"refreshEnabled": True, "writeEnabled": True,
                                         "org": SESSION["org"] or "default",
                                         "teamRole": TEAM_ROLE, "access": TEAM_ACCESS,
-                                        "splitType": SPLIT_TYPE_LABEL, "splitPercentage": SPLIT_PERCENTAGE, "scopeVersion": SCOPE_VERSION})
+                                        "splitType": SPLIT_TYPE_LABEL, "splitPercentage": SPLIT_PERCENTAGE, "scopeVersion": LOCAL_SCOPE_VERSION})
         if path == "/":
             path = "/index.html"
         target = (DOCS / path.lstrip("/")).resolve()
@@ -238,9 +245,9 @@ class Handler(BaseHTTPRequestHandler):
         result = preview_missing_ids([opp_id])
         value = result["states"].get(opp_id, {})
         return self.send_json(200, {**value, "eligible": opp_id in result["idsToAdd"],
-            "alreadyComplete": bool(value and is_complete(value)), "oppId": opp_id,
+            "alreadyComplete": value.get('updatePlan',{}).get('status')=='complete', "oppId": opp_id,
             "oppName": next((row.get("name") for row in json.loads(DATA.read_text()).get("rows", []) if row.get("id") == opp_id), opp_id),
-            "reason": value.get("blockedReason") or "Opportunity no longer meets the Partner scope."})
+            "reason": value.get('updatePlan',{}).get('reason') or value.get("blockedReason") or "Opportunity no longer meets the Partner scope."})
 
     def _write_one(self, payload: dict):
         if payload.get("confirm") != "CONFIRM":
@@ -250,7 +257,7 @@ class Handler(BaseHTTPRequestHandler):
             if not ids: raise ValueError("Opportunity ID is required")
             result = recheck_and_write(ids)
             value = result["states"].get(ids[0], {})
-            return self.send_json(200, {**value, "done": bool(value and is_complete(value)),
+            return self.send_json(200, {**value, "done": value.get('updatePlan',{}).get('status')=='complete' if value.get('updatePlan') else bool(value and is_complete(value)),
                 "oppId": ids[0], "results": result,
                 "error": "; ".join(item.get("message", "") for item in result["errors"]) or
                          ("Opportunity changed or is no longer in the worklist." if not value else None)})
@@ -265,6 +272,42 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(400, {"error": "Invalid request body"})
         if not isinstance(payload, dict):
             return self.send_json(400, {"error": "Request body must be an object"})
+        if path == '/api/users':
+            try:
+                term=str(payload.get('search') or '').strip()
+                if len(term)<2:return self.send_json(400,{'error':'Enter at least two characters.'})
+                term=term[:80].replace('\\','\\\\').replace("'","\\'")
+                refresh_session()
+                users=query_current("SELECT Id, Name, IsActive FROM User WHERE IsActive = true AND Name LIKE '%"+term+"%' ORDER BY Name LIMIT 30")
+                return self.send_json(200,{'users':[{'id':user['Id'],'name':user['Name']} for user in users]})
+            except (RuntimeError,OSError,ValueError) as error:return self.send_json(502,{'error':str(error)})
+        if path == '/api/review':
+            try:
+                ids=valid_ids([payload.get('oppId')]);user_id=str(payload.get('userId') or '')
+                role=payload.get('role')
+                if not ids or not re.fullmatch(r'005[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?',user_id) or role not in VALID_ROLES or payload.get('confirmed') is not True:
+                    raise ValueError('Select an active PSE, choose the role and confirm the assignment.')
+                with WRITE_LOCK,REFRESH_LOCK:
+                    refresh_session()
+                    if ids[0] not in allowed_missing_ids():raise ValueError('Opportunity is outside the current worklist.')
+                    _,states=read_current(ids,query_current)
+                    row=states[ids[0]]
+                    if row.get('inScope') is False:raise ValueError('Opportunity no longer meets the current scope.')
+                    requires_rvp=row.get('partnerRepActive') is False
+                    if requires_rvp and (payload.get('rvpConfirmed') is not True or role!=COVERAGE_ROLE):
+                        raise ValueError('RVP confirmation and Partner Account Executive - Coverage are required.')
+                    if (row.get('partnerRepNeedsPopulate') or user_id==row.get('partnerOwnerId')) and not requires_rvp and role!=TEAM_ROLE:
+                        raise ValueError('Matching PSE or blank-PSE assignments require Partner Account Executive.')
+                    users=query_current("SELECT Id, Name, IsActive FROM User WHERE Id = '"+user_id+"' AND IsActive = true")
+                    if len(users)!=1:raise ValueError('The selected PSE is not an accessible active Salesforce user.')
+                    approval={'userId':user_id,'name':users[0]['Name'],'active':True,'role':role,'confirmed':True,
+                              'baseRepId':row.get('partnerRepId'),'baseOwnerId':row.get('partnerOwnerId'),
+                              'requiresRvp':requires_rvp,'rvpConfirmed':payload.get('rvpConfirmed') is True}
+                    decorate(row,approval);update_local_snapshot({ids[0]:row})
+                    audit({'type':'local_assignment_review','oppId':ids[0],'review':approval})
+                    return self.send_json(200,row)
+            except ValueError as error:return self.send_json(400,{'error':str(error)})
+            except (RuntimeError,OSError) as error:return self.send_json(502,{'error':str(error)})
         if path == "/api/refresh":
             if payload.get("manual") is not True:
                 return self.send_json(400, {"error": "Click Refresh in the updated dashboard to refresh Salesforce data."})
