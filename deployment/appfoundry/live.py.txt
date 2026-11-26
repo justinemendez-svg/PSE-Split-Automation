@@ -335,6 +335,8 @@ def collect_snapshot(client, previous):
     for row in rows:
         if row['id'] in reviews:
             review = {**reviews[row['id']], 'active': statuses.get(reviews[row['id']].get('userId'))}
+            row['teamEntries'] = teams.get(row['id'], [])
+            row['splitEntries'] = splits.get(row['id'], [])
             decorate(row, review)
             row['teamEntries'] = row['updatePlan']['teamCurrent']
             row['splitEntries'] = row['updatePlan']['splitCurrent']

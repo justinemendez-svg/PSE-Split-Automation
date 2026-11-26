@@ -219,6 +219,24 @@ class LiveChecks(unittest.TestCase):
             self.assertEqual(self.post('/api/refresh', {'manual': True}).status_code, 200)
             collect.assert_called_once()
 
+    def test_refresh_checks_existing_memberships_for_reviewed_covering_pse(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'tests'))
+        from test_local_updates import DetailedSalesforce
+        sf = DetailedSalesforce(active=False)
+        sf.members.append({**sf.members[0], 'Id': '00q000000000002AAA', 'UserId': sf.other,
+                           'TeamMemberRole': hosted.COVERAGE_ROLE})
+        sf.entries.append({**sf.entries[0], 'Id': '049000000000002AAA', 'SplitOwnerId': sf.other,
+                           'Opportunity_Team_Role__c': hosted.COVERAGE_ROLE, 'Coverage__c': True})
+        review = {'confirmed': True, 'baseOwnerId': sf.rep, 'baseRepId': sf.rep,
+                  'userId': sf.other, 'name': 'Covering', 'active': True,
+                  'role': hosted.COVERAGE_ROLE, 'coverageConfirmed': True,
+                  'requiresRvp': True, 'rvpConfirmed': True}
+        value = hosted.collect_snapshot(sf, {'rows': [{'id': sf.opp_id, 'assignmentReview': review}]})
+        row = value['rows'][0]
+        self.assertEqual([item['object'] for item in row['updatePlan']['changes']], ['Opportunity'])
+        self.assertEqual(row['teamEntries'][0]['UserId'], sf.other)
+        self.assertEqual(row['splitEntries'][0]['SplitOwnerId'], sf.other)
+
 
 if __name__ == '__main__':
     unittest.main()
