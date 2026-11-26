@@ -1,0 +1,450 @@
+# Optional per-user Salesforce OAuth. No Salesforce CLI session is used on the host.
+import base64
+import hashlib
+import re
+import secrets
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from flask import g, redirect, session
+from cryptography.fernet import Fernet
+from local_scope import unique_opportunities, local_summary
+from local_updates import execute_local, read_current, decorate, retain_inactive_review, VALID_ROLES, COVERAGE_ROLE
+from refresh import build_soql, build_team_soql, build_split_soql, classify
+
+PUBLIC_ORIGIN = 'https://pse-split-automation.internal.zenai-apps.com'
+LOGIN_ORIGIN = 'https://zendesk.my.salesforce.com'
+CALLBACK_URL = PUBLIC_ORIGIN + '/oauth/callback'
+LIVE_SECRETS = ('SF_CLIENT_ID', 'SF_CLIENT_SECRET', 'SF_EXPECTED_ORG_ID', 'PSE_SESSION_SECRET', 'PSE_TOKEN_KEY')
+app.secret_key = os.environ.get('PSE_SESSION_SECRET')
+app.config.update(SESSION_COOKIE_SECURE=True, SESSION_COOKIE_HTTPONLY=True,
+                  SESSION_COOKIE_SAMESITE='Lax', PERMANENT_SESSION_LIFETIME=dt.timedelta(hours=8))
+_LIVE_DB_READY = False
+_LIVE_DB_LOCK = threading.Lock()
+
+
+class LiveError(Exception):
+    def __init__(self, message, code=400):
+        super().__init__(message)
+        self.code = code
+
+
+def oauth_configured():
+    if not all(os.environ.get(key) for key in LIVE_SECRETS):
+        return False
+    try:
+        Fernet(os.environ['PSE_TOKEN_KEY'].encode())
+        return (len(os.environ['PSE_SESSION_SECRET']) >= 32 and bool(re.fullmatch(
+            r'00D[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?', os.environ['SF_EXPECTED_ORG_ID'])))
+    except (ValueError, UnicodeError):
+        return False
+
+
+def live_db():
+    global _LIVE_DB_READY
+    engine = db()
+    if not _LIVE_DB_READY:
+        with _LIVE_DB_LOCK:
+            if not _LIVE_DB_READY:
+                with engine.begin() as cx:
+                    cx.execute(text('''CREATE TABLE IF NOT EXISTS pse_oauth_sessions (
+                        id TEXT PRIMARY KEY, credentials TEXT NOT NULL, snapshot TEXT,
+                        expires_at TIMESTAMPTZ NOT NULL)'''))
+                    cx.execute(text('''CREATE TABLE IF NOT EXISTS pse_oauth_audit (
+                        id BIGSERIAL PRIMARY KEY, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        actor TEXT NOT NULL, event TEXT NOT NULL)'''))
+                    cx.execute(text('DELETE FROM pse_oauth_sessions WHERE expires_at < NOW()'))
+                _LIVE_DB_READY = True
+    return engine
+
+
+def session_key():
+    sid = session.get('sid')
+    return hashlib.sha256(sid.encode()).hexdigest() if isinstance(sid, str) else None
+
+
+def token_cipher():
+    return Fernet(os.environ['PSE_TOKEN_KEY'].encode())
+
+
+def user_record(cx, lock=False):
+    key = session_key()
+    if not key:
+        return None
+    row = cx.execute(text('SELECT credentials, snapshot FROM pse_oauth_sessions WHERE id=:id AND expires_at > NOW()'
+                          + (' FOR UPDATE' if lock else '')), {'id': key}).first()
+    return row
+
+
+def get_user_snapshot(row):
+    return json.loads(row[1]) if row and row[1] else {
+        'generatedAt': None, 'config': {'scopeVersion': SCOPE_VERSION}, 'rows': [], 'summary': {}}
+
+
+def save_user_snapshot(cx, data):
+    cx.execute(text('UPDATE pse_oauth_sessions SET snapshot=:snapshot WHERE id=:id'),
+               {'id': session_key(), 'snapshot': json.dumps(data, allow_nan=False)})
+
+
+def audit_live(actor, event):
+    # Persist before and after writes, separately from the work transaction.
+    with live_db().begin() as cx:
+        cx.execute(text('INSERT INTO pse_oauth_audit(actor,event) VALUES (:actor,:event)'),
+                   {'actor': actor, 'event': json.dumps(event, allow_nan=False)})
+
+
+def sf_instance(value):
+    parsed = urllib.parse.urlsplit(str(value or ''))
+    if (parsed.scheme != 'https' or not parsed.hostname or not parsed.hostname.endswith('.salesforce.com')
+            or parsed.port not in (None, 443) or parsed.username or parsed.password or parsed.path not in ('', '/')
+            or parsed.query or parsed.fragment):
+        raise LiveError('Salesforce returned an unsupported instance URL.', 502)
+    return 'https://' + parsed.hostname
+
+
+def oauth_token(fields):
+    fields.update(client_id=os.environ['SF_CLIENT_ID'], client_secret=os.environ['SF_CLIENT_SECRET'])
+    req = urllib.request.Request(LOGIN_ORIGIN + '/services/oauth2/token',
+            data=urllib.parse.urlencode(fields).encode(), method='POST',
+            headers={'Content-Type': 'application/x-www-form-urlencoded'})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as response:
+            return json.loads(response.read())
+    except (urllib.error.URLError, ValueError):
+        raise LiveError('Salesforce authorization failed. Reconnect or ask your Salesforce admin to verify the OAuth app configuration.', 401) from None
+
+
+def oauth_identity(tokens):
+    parsed = urllib.parse.urlsplit(tokens.get('id', ''))
+    match = re.fullmatch(r'/id/(00D[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?)/(005[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?)', parsed.path)
+    if parsed.scheme != 'https' or not parsed.hostname or not parsed.hostname.endswith('.salesforce.com') or not match:
+        raise LiveError('Salesforce did not return a valid user identity.', 401)
+    org_id, user_id = match.groups()
+    if org_id[:15] != os.environ['SF_EXPECTED_ORG_ID'][:15]:
+        raise LiveError('Connect using the approved Zendesk production Salesforce org.', 403)
+    return org_id, user_id
+
+
+class SalesforceClient:
+    def __init__(self, cx, row):
+        self.cx = cx
+        self.tokens = json.loads(token_cipher().decrypt(row[0].encode()))
+        self.instance = sf_instance(self.tokens['instance_url'])
+        self.actor = self.tokens['user_id']
+
+    def renew(self):
+        if not self.tokens.get('refresh_token'):
+            raise LiveError('Your Salesforce connection expired. Connect again.', 401)
+        result = oauth_token({'grant_type': 'refresh_token', 'refresh_token': self.tokens['refresh_token']})
+        if result.get('id'):
+            org, user = oauth_identity(result)
+            if user != self.tokens['user_id']:
+                raise LiveError('Salesforce user changed. Connect again.', 401)
+        self.tokens.update({key: result[key] for key in ('access_token', 'refresh_token', 'instance_url') if result.get(key)})
+        self.instance = sf_instance(self.tokens['instance_url'])
+        self.cx.execute(text('UPDATE pse_oauth_sessions SET credentials=:credentials WHERE id=:id'),
+                        {'id': session_key(), 'credentials': token_cipher().encrypt(json.dumps(self.tokens).encode()).decode()})
+
+    def rest(self, method, path, body=None, headers=None):
+        if not path.startswith('/services/data/v60.0/') or path.startswith('//'):
+            raise LiveError('Unsupported Salesforce API path.', 400)
+        for attempt in range(2):
+            req = urllib.request.Request(self.instance + path,
+                    data=json.dumps(body).encode() if body is not None else None, method=method,
+                    headers={'Authorization': 'Bearer ' + self.tokens['access_token'],
+                             'Content-Type': 'application/json', **(headers or {})})
+            try:
+                with urllib.request.urlopen(req, timeout=90) as response:
+                    raw = response.read()
+                    return response.status, json.loads(raw) if raw else {}
+            except urllib.error.HTTPError as error:
+                if error.code == 401 and attempt == 0:
+                    self.renew()
+                    continue
+                try:
+                    details = json.loads(error.read())
+                    message = '; '.join(str(item.get('message', '')) for item in details) if isinstance(details, list) else str(details.get('message', 'Salesforce request failed.'))
+                except ValueError:
+                    message = 'Salesforce request failed.'
+                return error.code, {'message': message[:1000]}
+            except urllib.error.URLError:
+                raise LiveError('Could not reach Salesforce. Check current records before retrying an Update.', 502) from None
+
+    def query(self, soql):
+        path = '/services/data/v60.0/query/?q=' + urllib.parse.quote(soql, safe='')
+        records = []
+        while path:
+            code, value = self.rest('GET', path)
+            if code != 200:
+                raise LiveError(value.get('message', 'Salesforce query failed.'), 502)
+            records.extend(value.get('records', []))
+            path = value.get('nextRecordsUrl')
+        return records
+
+    def split_type(self):
+        rows = self.query("SELECT SplitTypeId FROM OpportunitySplit WHERE SplitType.MasterLabel = 'Overlay' LIMIT 1")
+        if not rows:
+            raise LiveError('No accessible Overlay Split Type was found.', 400)
+        return rows[0]['SplitTypeId']
+
+
+@app.before_request
+def guard_live_requests():
+    if request.method == 'POST':
+        origin = request.headers.get('Origin')
+        if origin and origin != PUBLIC_ORIGIN:
+            return jsonify(error='Request origin is not allowed.'), 403
+        if session_key():
+            expected = session.get('csrf')
+            supplied = request.headers.get('X-PSE-CSRF', '')
+            if not expected or not secrets.compare_digest(expected, supplied):
+                return jsonify(error='Reload the dashboard before continuing.'), 403
+
+
+@app.errorhandler(LiveError)
+def live_error(error):
+    return jsonify(error=str(error), needsLogin=error.code == 401), error.code
+
+
+def live_health():
+    connected = False
+    if oauth_configured():
+        session.setdefault('csrf', secrets.token_urlsafe(32))
+        with live_db().begin() as cx:
+            connected = user_record(cx) is not None
+    return jsonify(uploadEnabled=True, refreshEnabled=connected, writeEnabled=connected,
+                   authMode='oauth', loggedIn=connected, oauthConfigured=oauth_configured(),
+                   org='Zendesk production', scopeVersion=SCOPE_VERSION,
+                   csrfToken=session.get('csrf') if oauth_configured() else None,
+                   version='e3ac60a-hosted-live-1')
+
+
+def live_data():
+    if oauth_configured() and session_key():
+        with live_db().begin() as cx:
+            row = user_record(cx)
+            if not row:
+                raise LiveError('Your Salesforce session expired. Connect again.', 401)
+            return jsonify(scope_snapshot(get_user_snapshot(row)))
+    return data_json()
+
+
+def live_upload():
+    if oauth_configured() and session_key():
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict) or body.get('manual') is not True:
+            raise LiveError('Choose a file and click Upload data to dashboard.')
+        try:
+            payload = prepare_snapshot(validate_snapshot(body.get('snapshot')))
+        except ValueError as error:
+            raise LiveError(str(error)) from None
+        with live_db().begin() as cx:
+            if not user_record(cx, lock=True):
+                raise LiveError('Connect to Salesforce again.', 401)
+            save_user_snapshot(cx, payload)
+        return jsonify(ok=True, snapshot=payload)
+    return upload()
+
+
+def oauth_login():
+    if not oauth_configured():
+        return Response('''<!doctype html><title>Salesforce connection setup</title>
+<main style="max-width:760px;margin:60px auto;font:16px/1.6 system-ui">
+<h1>Salesforce connection needs admin setup</h1>
+<p>The dashboard update is installed. An approved Salesforce OAuth app must be configured before live Refresh and Update are available.</p>
+<p>Callback URL: <code>https://pse-split-automation.internal.zenai-apps.com/oauth/callback</code></p>
+<p>Ask the Salesforce admin for an approved OAuth app with API and refresh-token access, authorization-code flow, and PKCE. The AppFoundry owner must configure SF_CLIENT_ID, SF_CLIENT_SECRET, SF_EXPECTED_ORG_ID, PSE_SESSION_SECRET, and PSE_TOKEN_KEY through Secrets Management.</p>
+<p><a href="https://github.com/justinemendez-svg/PSE-Split-Automation/blob/main/deployment/appfoundry/README.md">Salesforce admin setup instructions</a></p>
+<p>Until configured, use Upload the data or the local dashboard.</p><a href="/">Back to dashboard</a></main>'''.replace('\n+', '\n'), status=503, mimetype='text/html')
+    verifier = secrets.token_urlsafe(64)
+    session['oauth'] = {'state': secrets.token_urlsafe(32), 'verifier': verifier, 'at': time.time()}
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
+    fields = {'response_type': 'code', 'client_id': os.environ['SF_CLIENT_ID'], 'redirect_uri': CALLBACK_URL,
+              'state': session['oauth']['state'], 'code_challenge': challenge, 'code_challenge_method': 'S256',
+              'scope': 'api refresh_token'}
+    return redirect(LOGIN_ORIGIN + '/services/oauth2/authorize?' + urllib.parse.urlencode(fields))
+
+
+def oauth_callback():
+    if not oauth_configured():
+        return oauth_login()
+    pending = session.pop('oauth', {})
+    if (time.time() - pending.get('at', 0) > 600 or not pending.get('state')
+            or not secrets.compare_digest(pending['state'], request.args.get('state', ''))):
+        raise LiveError('Salesforce sign-in expired or state did not match. Start Connect to Salesforce again.', 400)
+    if request.args.get('error') or not request.args.get('code'):
+        raise LiveError('Salesforce sign-in was cancelled or denied. No records were changed.', 401)
+    tokens = oauth_token({'grant_type': 'authorization_code', 'code': request.args['code'],
+                          'redirect_uri': CALLBACK_URL, 'code_verifier': pending['verifier']})
+    org_id, user_id = oauth_identity(tokens)
+    tokens['instance_url'] = sf_instance(tokens.get('instance_url'))
+    if not tokens.get('access_token') or not tokens.get('refresh_token'):
+        raise LiveError('The approved OAuth app must grant API and refresh-token access.', 401)
+    tokens = {key: tokens[key] for key in ('access_token', 'refresh_token', 'instance_url')}
+    tokens.update(org_id=org_id, user_id=user_id)
+    old_key = session_key()
+    session.clear()
+    session.permanent = True
+    session['sid'] = secrets.token_urlsafe(32)
+    session['csrf'] = secrets.token_urlsafe(32)
+    with live_db().begin() as cx:
+        if old_key:
+            cx.execute(text('DELETE FROM pse_oauth_sessions WHERE id=:id'), {'id': old_key})
+        cx.execute(text('INSERT INTO pse_oauth_sessions(id, credentials, expires_at) VALUES (:id,:credentials,NOW()+INTERVAL \'8 hours\')'),
+                   {'id': session_key(), 'credentials': token_cipher().encrypt(json.dumps(tokens).encode()).decode()})
+    # Connecting never fetches the snapshot or changes Salesforce records.
+    return redirect('/')
+
+
+@app.post('/oauth/logout')
+def oauth_logout():
+    if oauth_configured() and session_key():
+        with live_db().begin() as cx:
+            cx.execute(text('DELETE FROM pse_oauth_sessions WHERE id=:id'), {'id': session_key()})
+    session.clear()
+    return jsonify(ok=True)
+
+
+def valid_live_ids(body, bulk=False):
+    values = body.get('oppIds') if bulk else [body.get('oppId')]
+    if not isinstance(values, list) or not values or len(values) > 200000:
+        raise LiveError('Choose one or more valid Opportunities.')
+    if any(not isinstance(item, str) or not re.fullmatch(r'006[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?', item) for item in values):
+        raise LiveError('Invalid Opportunity ID.')
+    return list(dict.fromkeys(values))
+
+
+def collect_snapshot(client, previous):
+    records = unique_opportunities(client.query(build_soql()), field='Id')
+    ids = [record['Id'] for record in records]
+    teams, splits = {}, {}
+    for start in range(0, len(ids), 500):
+        batch = ids[start:start + 500]
+        for entry in client.query(build_team_soql(batch)):
+            teams.setdefault(entry['OpportunityId'], []).append(entry)
+        for entry in client.query(build_split_soql(batch)):
+            splits.setdefault(entry['OpportunityId'], []).append(entry)
+    rows = [classify(record, teams.get(record['Id'], []), splits.get(record['Id'], [])) for record in records]
+    reviews = {row['id']: row['assignmentReview'] for row in previous.get('rows', []) if row.get('assignmentReview')}
+    selected = sorted({review.get('userId') for review in reviews.values() if re.fullmatch(r'005[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?', str(review.get('userId', '')))})
+    statuses = {}
+    for start in range(0, len(selected), 200):
+        users = client.query('SELECT Id, IsActive FROM User WHERE Id IN (' + ','.join("'" + item + "'" for item in selected[start:start+200]) + ')')
+        statuses.update({user['Id']: user.get('IsActive') for user in users})
+    for row in rows:
+        if row['id'] in reviews:
+            review = {**reviews[row['id']], 'active': statuses.get(reviews[row['id']].get('userId'))}
+            decorate(row, review)
+            row['teamEntries'] = row['updatePlan']['teamCurrent']
+            row['splitEntries'] = row['updatePlan']['splitCurrent']
+    return scope_snapshot({'generatedAt': dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds'),
+                           'config': {'scopeVersion': SCOPE_VERSION, 'stage': CLOSED_STAGE, 'partnerField': PARTNER_FIELD},
+                           'rows': rows, 'summary': local_summary(rows)})
+
+
+def assignment_review(client, data, body, inactive=False):
+    ids = valid_live_ids(body)
+    if body.get('confirmed') is not True:
+        raise LiveError('Confirm the assignment first.')
+    _, states = read_current(ids, client.query, keep_all_memberships=not inactive)
+    row = states[ids[0]]
+    if row.get('inScope') is False:
+        raise LiveError('Opportunity no longer meets the current scope.')
+    if inactive:
+        approval = retain_inactive_review(row)
+    else:
+        user_id = str(body.get('userId') or '')
+        role = body.get('role')
+        if not re.fullmatch(r'005[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?', user_id) or role not in VALID_ROLES:
+            raise LiveError('Select an active PSE and a supported role.')
+        if role == COVERAGE_ROLE and body.get('coverageConfirmed') is not True:
+            raise LiveError('Tick coverage box before confirming a Coverage assignment.')
+        requires_rvp = row.get('partnerRepActive') is False
+        if requires_rvp and (body.get('rvpConfirmed') is not True or role != COVERAGE_ROLE):
+            raise LiveError('RVP confirmation and the Coverage role are required.')
+        if (row.get('partnerRepNeedsPopulate') or user_id == row.get('partnerOwnerId')) and not requires_rvp and role != VALID_ROLES[0]:
+            raise LiveError('Matching or blank-PSE assignments require Partner Account Executive.')
+        users = client.query("SELECT Id, Name, IsActive FROM User WHERE Id = '" + user_id + "' AND IsActive = true")
+        if len(users) != 1:
+            raise LiveError('Choose an accessible active Salesforce user.')
+        approval = {'userId': user_id, 'name': users[0]['Name'], 'active': True, 'role': role, 'confirmed': True,
+                    'baseRepId': row.get('partnerRepId'), 'baseOwnerId': row.get('partnerOwnerId'),
+                    'requiresRvp': requires_rvp, 'rvpConfirmed': body.get('rvpConfirmed') is True,
+                    'coverageConfirmed': body.get('coverageConfirmed') is True}
+    decorate(row, approval)
+    audit_live(client.actor, {'type': 'assignment_review', 'oppId': ids[0], 'review': approval})
+    return row
+
+
+def live_dispatch():
+    if request.path == '/oauth/login':
+        return oauth_login()
+    if request.path == '/oauth/callback':
+        return oauth_callback()
+    if not oauth_configured():
+        raise LiveError('Salesforce OAuth needs admin setup. Use Upload the data or the local app meanwhile.', 410)
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        raise LiveError('Request body must be an object.')
+    with live_db().begin() as cx:
+        stored = user_record(cx, lock=True)
+        if not stored:
+            raise LiveError('Connect to Salesforce before continuing.', 401)
+        client = SalesforceClient(cx, stored)
+        data = scope_snapshot(get_user_snapshot(stored))
+        path = request.path
+        if path == '/api/users':
+            term = str(body.get('search') or '').strip()
+            if len(term) < 2:
+                raise LiveError('Enter at least two characters.')
+            term = term[:80].replace('\\', '\\\\').replace("'", "\\'")
+            users = client.query("SELECT Id, Name, IsActive FROM User WHERE IsActive = true AND Name LIKE '%" + term + "%' ORDER BY Name LIMIT 30")
+            return jsonify(users=[{'id': user['Id'], 'name': user['Name']} for user in users])
+        if path == '/api/refresh':
+            if body.get('manual') is not True:
+                raise LiveError('Click Refresh to download fresh Salesforce data.')
+            fresh = collect_snapshot(client, data)
+            save_user_snapshot(cx, fresh)
+            return jsonify(ok=True, summary=fresh['summary'])
+        ids = valid_live_ids(body, bulk=path.endswith('-all'))
+        allowed = {row['id'] for row in data['rows'] if row.get('updatePlan', {}).get('status') != 'complete'}
+        if not set(ids).issubset(allowed):
+            raise LiveError('Opportunity is outside your current worklist. Click Refresh.', 409)
+        # Serialize the same Opportunities across users and service instances.
+        for ident in sorted(ids):
+            cx.execute(text('SELECT pg_advisory_xact_lock(hashtextextended(:key,0))'), {'key': ident[:15]})
+        if path in ('/api/review', '/api/review-inactive-pse'):
+            value = assignment_review(client, data, body, inactive=path.endswith('inactive-pse'))
+            states = {ids[0]: value}
+            result = value
+        else:
+            write = path in ('/api/write', '/api/write-all')
+            if write and body.get('confirm') != 'CONFIRM':
+                raise LiveError('Update confirmation is required.')
+            approvals = {row['id']: row['assignmentReview'] for row in data['rows'] if row.get('assignmentReview')}
+            if write:
+                audit_live(client.actor, {'type': 'update_started', 'oppIds': ids})
+            result = execute_local(ids, allowed, client.query, client.rest, client.split_type, write=write, approvals=approvals)
+            states = result['states']
+            if write:
+                audit_live(client.actor, {'type': 'update_finished', **{key: value for key, value in result.items() if key != 'states'}})
+            if not path.endswith('-all'):
+                value = states.get(ids[0], {})
+                if write:
+                    result = {**value, 'done': value.get('updatePlan', {}).get('status') == 'complete',
+                              'oppId': ids[0], 'results': result,
+                              'error': '; '.join(item.get('message', '') for item in result['errors']) or None}
+                else:
+                    result = {**value, 'eligible': ids[0] in result['idsToAdd'], 'oppId': ids[0],
+                              'alreadyComplete': value.get('updatePlan', {}).get('status') == 'complete',
+                              'oppName': next(row.get('name') for row in data['rows'] if row['id'] == ids[0]),
+                              'reason': value.get('updatePlan', {}).get('reason', '')}
+        for row in data['rows']:
+            row.update(states.get(row['id'], {}))
+        data['summary'] = local_summary(data['rows'])
+        save_user_snapshot(cx, data)
+        return jsonify(result)
+
+
+app.view_functions.update(health=live_health, data_json=live_data, upload=live_upload, local_only=live_dispatch)

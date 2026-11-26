@@ -1,0 +1,7 @@
+  .text-link { padding:0; background:transparent; color:var(--teal); font:inherit; font-weight:650; text-decoration:underline; text-underline-offset:3px; }
+  .text-link:hover { background:transparent; color:#23646a; }
+  .setup-prompt { display:block; width:100%; min-height:420px; padding:16px; border:1px solid var(--line); border-radius:8px; background:#f3f5f7; color:var(--text); font:13px/1.6 ui-monospace,monospace; resize:vertical; }
+  #downloadPrompt { min-height:150px; }
+  .setup-actions { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin:12px 0; }
+  .btn-connect { display:inline-block; padding:9px 15px; border-radius:8px; background:var(--teal); color:white; font-weight:650; }
+  .btn-connect:hover { color:white; background:#23646a; text-decoration:none; }
