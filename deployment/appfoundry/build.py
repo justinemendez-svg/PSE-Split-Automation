@@ -45,6 +45,13 @@ def build():
                         'Uploading replaces your session snapshot when connected, or the shared snapshot when disconnected.')
     # Make upload mode visible even when loading an old or missing snapshot.
     js = replace_once(js, 'wire();\n  try {', 'wire();\n  await detectApi();\n  try {')
+    js = replace_once(js, 'if (details.error && !(response.status === 404 && state.writeApi.refreshEnabled)) {',
+                      '''if (response.status === 409) {
+        status.className = "status";
+        status.textContent = "Upload a current pse-data.json export to load the updated dashboard. After Salesforce admin setup, you can also Connect to Salesforce and click Refresh.";
+        return;
+      }
+      if (details.error && !(response.status === 404 && state.writeApi.refreshEnabled)) {''')
     js = replace_once(js, 'state.writeApi.org = health.org || "default";',
                       '''state.writeApi.org = health.org || "default";
     state.writeApi.loggedIn = !!health.loggedIn;
